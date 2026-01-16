@@ -1,0 +1,28 @@
+config:
+  circuit_breaker_config:
+    failure_threshold: 5
+    recovery_timeout_seconds: 30
+    expected_exception_types:
+      - ConnectionError
+      - TimeoutError
+  api_config:
+    title: TaskFlow API
+    name: "${.title}"
+    description: A Learning-Focused Task Queue System API
+    version: v1.0.0
+    status: healthy
+    prefix: /api/v1
+    auth_prefix: "${.prefix}/auth"
+    middleware:
+      cors:
+        allow_origins:
+          - "*"
+        allow_credentials: true
+        allow_methods:
+          - "*"
+        allow_headers:
+          - "*"
+    ratelimit:
+      default_rate: 50
+      burst_rate: 100
+      login_rate: 10

@@ -1,0 +1,37 @@
+[project]
+name = "ml-router"
+version = "0.1.0"
+description = "A distributed ML inference router"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "aiocache>=0.12.3",
+    "fastapi[standard]>=0.128.0",
+    "msgspec>=0.20.0",
+    "omegaconf>=2.3.0",
+    "pydantic-settings>=2.12.0",
+    "python-json-logger>=4.0.0",
+    "slowapi>=0.1.9",
+]
+
+[dependency-groups]
+dev = [
+    "prek>=0.2.29",
+    "pyrefly>=0.48.1",
+    "pytest-asyncio>=1.3.0",
+    "ruff>=0.14.13",
+]
+
+# Pytest configuration
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+
+
+# Pyrefly header
+[tool.pyrefly]
+
+#### configuring what to type check and where to import from
+project-includes = ["src", "."]
+project-excludes = ["**/.[!/.]*"]
+search-path = ["."]
