@@ -9,6 +9,16 @@ class EnvironmentEnum(StrEnum):
     TESTING = "testing"
 
 
+class ModelTypeEnum(StrEnum):
+    CLASSIFICATION = "classification"
+    REGRESSION = "regression"
+    CLUSTERING = "clustering"
+    RECOMMENDATION = "recommendation"
+    SENTIMENT = "sentiment"
+    ANOMALY_DETECTION = "anomaly_detection"
+    NER = "ner"
+
+
 class ErrorCodeEnum(StrEnum):
     BLOB_STORAGE_ERROR = "blob_storage_error"
     BUSINESS_LOGIC_ERROR = "business_logic_error"
@@ -34,11 +44,10 @@ class ResourceEnum(StrEnum):
     RABBITMQ_PRODUCER = "rabbitmq_producer"
 
 
-class TaskStatusEnum(StrEnum):
-    PENDING = "pending"
-    IN_PROGRESS = "in_progress"
-    COMPLETED = "completed"
-    FAILED = "failed"
+class StatusEnum(StrEnum):
+    HEALTHY = "healthy"
+    UNHEALTHY = "unhealthy"
+    UNKNOWN = "unknown"
 
 
 class TaskEventTypeEnum(StrEnum):
@@ -60,3 +69,8 @@ class CircuitBreakerStateEnum(StrEnum):
     CLOSED = "closed"
     OPEN = "open"
     HALF_OPEN = "half_open"
+
+
+class ProtocolEnum(StrEnum):
+    HTTP = "http"
+    HTTPS = "https"

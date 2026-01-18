@@ -7,7 +7,7 @@ from pydantic import SecretStr
 from pydantic.functional_validators import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from src.schemas.types import EnvironmentEnum
+from src.schemas.types import EnvironmentEnum, ProtocolEnum
 
 
 class BaseConfig(BaseSettings):
@@ -79,6 +79,7 @@ class DevelopmentConfig(BaseConfig):
     )
 
     ENV: EnvironmentEnum = EnvironmentEnum.DEVELOPMENT
+    PROTOCOL: ProtocolEnum = ProtocolEnum.HTTP
     WORKERS: int = 1
     LIMIT_VALUE: int = 20
     RELOAD: bool = True
@@ -97,6 +98,7 @@ class SandboxConfig(BaseConfig):
     )
 
     ENV: EnvironmentEnum = EnvironmentEnum.SANDBOX
+    PROTOCOL: ProtocolEnum = ProtocolEnum.HTTPS
     WORKERS: int = 1
     LIMIT_VALUE: int = 30
     RELOAD: bool = False
@@ -115,6 +117,7 @@ class ProductionConfig(BaseConfig):
     )
 
     ENV: EnvironmentEnum = EnvironmentEnum.PRODUCTION
+    PROTOCOL: ProtocolEnum = ProtocolEnum.HTTPS
     WORKERS: int = 2
     LIMIT_VALUE: int = 60
     RELOAD: bool = False

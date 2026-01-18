@@ -7,6 +7,23 @@ from pythonjsonlogger import json as jsonlogger
 ROOT = Path(__file__).parent.absolute()
 
 
+class EmojiFormatter(logging.Formatter):
+    """Custom formatter that adds emojis based on log level."""
+
+    EMOJIS: dict[int, str] = {
+        logging.DEBUG: "🐛",
+        logging.INFO: "ℹ️",
+        logging.WARNING: "⚠️",
+        logging.ERROR: "❌",
+        logging.CRITICAL: "🚨",
+    }
+
+    def format(self, record: logging.LogRecord) -> str:
+        """Add emoji to the record"""
+        record.emoji = self.EMOJIS.get(record.levelno, "")
+        return super().format(record)
+
+
 def create_logger(
     name: str = "logger",
     log_level: int = logging.INFO,
@@ -53,9 +70,9 @@ def create_logger(
             },
         )
     else:
-        # Plain text formatter (backward compatibility)
-        formatter = logging.Formatter(
-            fmt="%(asctime)s - %(name)s - [%(levelname)s] - %(message)s",
+        # Plain text formatter with emojis
+        formatter = EmojiFormatter(
+            fmt="%(asctime)s - %(name)s - [%(levelname)s] %(emoji)s - %(message)s",
             datefmt="%Y-%m-%d %H:%M:%S",
         )
 
@@ -105,8 +122,8 @@ def add_file_handler(
             },
         )
     else:
-        formatter = logging.Formatter(
-            fmt="%(asctime)s - %(name)s - [%(levelname)s] - %(message)s",
+        formatter = EmojiFormatter(
+            fmt="%(asctime)s - %(name)s - [%(levelname)s] %(emoji)s - %(message)s",
             datefmt="%Y-%m-%d %H:%M:%S",
         )
 

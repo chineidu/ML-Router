@@ -1,4 +1,11 @@
 config:
+  connection_config:
+    timeout_seconds: 10
+    connect_timeout_seconds: 5
+    read_timeout_seconds: 3
+    max_connections: 100
+    max_keepalive_connections: 20
+
   circuit_breaker_config:
     failure_threshold: 5
     recovery_timeout_seconds: 30

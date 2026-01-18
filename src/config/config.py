@@ -30,6 +30,27 @@ class CircuitBreakerConfig:
 
 
 @dataclass(slots=True, kw_only=True)
+class ConnectionConfig:
+    """Connection configuration class."""
+
+    timeout_seconds: int = field(
+        metadata={"description": "Timeout duration for connections in seconds."}
+    )
+    connect_timeout_seconds: int = field(
+        metadata={"description": "Connection timeout duration in seconds."}
+    )
+    read_timeout_seconds: int = field(
+        metadata={"description": "Read timeout duration in seconds."}
+    )
+    max_connections: int = field(
+        metadata={"description": "Maximum number of connections."}
+    )
+    max_keepalive_connections: int = field(
+        metadata={"description": "Maximum number of keep-alive connections."}
+    )
+
+
+@dataclass(slots=True, kw_only=True)
 class CORS:
     """CORS configuration class."""
 
@@ -89,6 +110,9 @@ class AppConfig(BaseModel):
 
     circuit_breaker_config: CircuitBreakerConfig = Field(
         description="Configuration settings for the circuit breaker"
+    )
+    connection_config: ConnectionConfig = Field(
+        description="Configuration settings for connections"
     )
     api_config: APIConfig = Field(description="Configuration settings for the API")
 

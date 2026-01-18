@@ -1,19 +1,23 @@
-import asyncio
 import time
 import warnings
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, AsyncGenerator
 
+import httpx
 from fastapi import FastAPI
 
 from src import create_logger
-from src.config import app_settings
+from src.api.core.ratelimit import limiter
+from src.config import app_config, app_settings
 
 if TYPE_CHECKING:
     pass
 
 warnings.filterwarnings("ignore")
 logger = create_logger(name="api_lifespan")
+BASE_URL: str = (
+    f"{app_settings.PROTOCOL.value}://{app_settings.HOST}:{app_settings.PORT}"
+)
 
 
 @asynccontextmanager
@@ -32,7 +36,27 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:  # noqa: ARG001
         # ================= Load Dependencies ================
         # ====================================================
 
-        # ---------- Setup database ----------
+        # ---------- Init shared client ----------
+        timeout = httpx.Timeout(
+            timeout=app_config.connection_config.timeout_seconds,
+            connect=app_config.connection_config.connect_timeout_seconds,
+            read=app_config.connection_config.read_timeout_seconds,
+        )
+        client: httpx.AsyncClient = httpx.AsyncClient(
+            base_url=BASE_URL,
+            timeout=timeout,
+            limits=httpx.Limits(
+                max_connections=app_config.connection_config.max_connections,
+                max_keepalive_connections=app_config.connection_config.max_keepalive_connections,
+            ),
+        )
+        app.state.client = client
+
+        logger.info("✅ Shared HTTP client initialized.")
+
+        # ---------- Setup rate limiter ----------
+        app.state.limiter = limiter
+        logger.info("✅ Rate limiter initialized")
 
         logger.info(
             f"Application startup completed in {time.perf_counter() - start_time:.2f} seconds"
@@ -52,18 +76,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:  # noqa: ARG001
     finally:
         logger.info("Shutting down application...")
 
-        # ---------- Cleanup log cleanup task ----------
-        if hasattr(app.state, "cleanup_task"):
-            try:
-                cleanup_task = app.state.cleanup_task
-                cleanup_task.cancel()
-                try:
-                    await cleanup_task
-                except asyncio.CancelledError:
-                    logger.info("🚨 Log cleanup task cancelled")
-            except Exception as e:
-                logger.error(f"❌ Error shutting down log cleanup task: {e}")
-
         # ---------- Cleanup rate limiter ----------
         if hasattr(app.state, "limiter"):
             try:
@@ -73,11 +85,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:  # noqa: ARG001
             except Exception as e:
                 logger.error(f"❌ Error shutting down the rate limiter: {e}")
 
-        # ---------- Cleanup cache ----------
-        if hasattr(app.state, "cache"):
+        # ---------- Cleanup client ----------
+        if hasattr(app.state, "client") and app.state.client:
             try:
-                app.state.cache = None
-                logger.info("🚨 Cache shutdown.")
+                await app.state.client.aclose()
+                logger.info("🚨 Client shutdown.")
 
             except Exception as e:
-                logger.error(f"❌ Error shutting down the cache: {e}")
+                logger.error(f"❌ Error shutting down the client: {e}")
