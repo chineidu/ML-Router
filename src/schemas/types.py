@@ -42,6 +42,7 @@ class ResourceEnum(StrEnum):
     CACHE = "cache"
     DATABASE = "database"
     RATE_LIMITER = "rate_limiter"
+    SERVICE_REGISTRY = "service_registry"
 
 
 class StatusEnum(StrEnum):

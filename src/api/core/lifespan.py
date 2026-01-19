@@ -65,6 +65,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:  # noqa: ARG001
         )
         await service_registry.ainitialize()
         app.state.backend_registry = backend_registry
+        app.state.service_registry = service_registry
 
         # Start background health check loop
         app.state.health_check_task = asyncio.create_task(

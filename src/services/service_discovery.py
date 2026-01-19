@@ -147,7 +147,7 @@ class ServiceRegistry:
                 f"Registry updates will not persist."
             )
 
-    async def aregister(self, instance: ServiceInstance) -> None:
+    async def aregister(self, instance: ServiceInstance) -> bool:
         """Register a new service instance."""
         if not self.registry:
             raise ValueError(
@@ -160,11 +160,19 @@ class ServiceRegistry:
             f"Registered service: '{instance.service_name}' [{instance.service_id}] "
             f"at {instance.endpoint_url}"
         )
+        return True
 
-    async def aderegister(self, service_id: str) -> None:
+    async def abatch_register(self, instances: list[ServiceInstance]) -> bool:
+        """Register multiple service instances."""
+        async with self._lock:
+            for instance in instances:
+                await self.aregister(instance)
+        return True
+
+    async def aderegister(self, service_id: str) -> bool:
         """Deregister a service instance."""
         if service_id not in self.registry:
-            return
+            return False
 
         async with self._lock:
             # Thread-safe removal (prevents race conditions)
@@ -175,10 +183,18 @@ class ServiceRegistry:
                 logger.info(
                     f"Deregistered service: '{instance.service_name}' [{service_id}]"
                 )
-            else:
-                logger.warning(
-                    f"Service ID {service_id} not found in registry for deregistration."
-                )
+                return True
+            logger.warning(
+                f"Service ID {service_id} not found in registry for deregistration."
+            )
+            return False
+
+    async def abatch_deregister(self, service_ids: list[str]) -> bool:
+        """Deregister multiple service instances."""
+        async with self._lock:
+            for service_id in service_ids:
+                await self.aderegister(service_id)
+        return True
 
     async def aget_healthy_instances(self, service_name: str) -> list[ServiceInstance]:
         """Get all healthy service instances."""
@@ -243,6 +259,21 @@ class ServiceRegistry:
 
         # Save updated statuses
         await self._asave_registry()
+
+    async def aheartbeat(self, service_id: str) -> bool:
+        """Update the heartbeat timestamp for a service instance."""
+        if service_id not in self.registry:
+            logger.warning(f"Heartbeat received for unknown service ID: {service_id}")
+            return False
+
+        instance = self.registry[service_id]
+        instance.last_heartbeat = time.time()
+        instance.status = StatusEnum.HEALTHY
+        await self._asave_registry()
+        logger.info(
+            f"Heartbeat updated for service '{instance.service_name}' [{service_id}]"
+        )
+        return True
 
     def list_all_services(self) -> dict[str, list[ServiceInstance]]:
         """List all registered service instances grouped by service name."""

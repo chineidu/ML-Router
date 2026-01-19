@@ -11,7 +11,7 @@ from src.schemas.types import ResourceEnum
 if TYPE_CHECKING:
     import httpx
 
-    from src.services.service_discovery import BackendRegistry
+    from src.services.service_discovery import BackendRegistry, ServiceRegistry
 
 
 _executor: ThreadPoolExecutor | None = None
@@ -65,6 +65,16 @@ def get_backend_registry(request: Request) -> "BackendRegistry":
     ):
         raise ResourcesNotFoundError(resource_type=ResourceEnum.BACKEND_REGISTRY)
     return request.app.state.backend_registry
+
+
+def get_service_registry(request: Request) -> "ServiceRegistry":
+    """Dependency to inject ServiceRegistry into endpoints."""
+    if (
+        not hasattr(request.app.state, "service_registry")
+        or request.app.state.service_registry is None
+    ):
+        raise ResourcesNotFoundError(resource_type=ResourceEnum.SERVICE_REGISTRY)
+    return request.app.state.service_registry
 
 
 def get_client(request: Request) -> "httpx.AsyncClient":

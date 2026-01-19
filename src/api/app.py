@@ -7,6 +7,7 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
+from prometheus_fastapi_instrumentator import Instrumentator
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
@@ -14,7 +15,7 @@ from src import create_logger
 from src.api.core.exceptions import BaseAPIError, api_error_handler
 from src.api.core.lifespan import lifespan
 from src.api.core.middleware import MIDDLEWARE_STACK
-from src.api.routes import health, predict
+from src.api.routes import health, predict, services
 
 # from src.api.routes import proxy
 from src.config import app_config, app_settings
@@ -75,10 +76,20 @@ def create_application() -> FastAPI:
     # Include routers
     app.include_router(health.router, prefix=prefix)
     app.include_router(predict.router, prefix=prefix)
+    app.include_router(services.router, prefix=prefix)
 
     # Add exception handlers
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore
     app.add_exception_handler(BaseAPIError, api_error_handler)  # type: ignore
+
+    # Initialize Prometheus instrumentation (Metrics)
+    instrumentator = Instrumentator(
+        should_group_status_codes=False,
+        should_ignore_untemplated=True,
+        should_instrument_requests_inprogress=True,
+        excluded_handlers=["/metrics", "/health", "/docs", "/redoc", "/openapi.json"],
+    )
+    instrumentator.instrument(app).expose(app)
 
     return app
 
