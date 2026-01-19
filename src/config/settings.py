@@ -19,15 +19,20 @@ class BaseConfig(BaseSettings):
     PORT: int = 8000
     WORKERS: int = 1
 
+    # ===== DATABASE =====
+    POSTGRES_USER: str = "apigateway"
+    POSTGRES_PASSWORD: SecretStr = SecretStr("apigateway")
+    POSTGRES_HOST: str = "localhost"
+    POSTGRES_PORT: int = 5432
+    POSTGRES_DB: str = "apigateway_db"
+
     # ===== REDIS CACHE =====
     REDIS_HOST: str = "localhost"
     REDIS_PORT: int = 6379
     REDIS_PASSWORD: SecretStr = SecretStr("your_redis_password")
     REDIS_DB: int = 0
 
-    @field_validator(
-        "PORT", "POSTGRES_PORT", "REDIS_PORT", "AWS_S3_PORT", mode="before"
-    )
+    @field_validator("PORT", "POSTGRES_PORT", "REDIS_PORT", mode="before")
     @classmethod
     def parse_port_fields(cls, v: str | int) -> int:
         """Parses port fields to ensure they are integers."""
@@ -41,6 +46,27 @@ class BaseConfig(BaseSettings):
             raise ValueError(f"Port must be between 1 and 65535, got {v}")
 
         return v
+
+    @property
+    def database_url(self) -> str:
+        """
+        Constructs the database connection URL.
+
+        Returns
+        -------
+        str
+            Complete database connection URL in the format:
+            postgresql+asyncpg://user:password@host:port/dbname
+        """
+        password: str = quote(self.POSTGRES_PASSWORD.get_secret_value(), safe="")
+        url: str = (
+            f"postgresql+asyncpg://{self.POSTGRES_USER}"
+            f":{password}"
+            f"@{self.POSTGRES_HOST}"
+            f":{self.POSTGRES_PORT}"
+            f"/{self.POSTGRES_DB}"
+        )
+        return url
 
     @property
     def redis_url(self) -> str:

@@ -6,6 +6,10 @@ config:
     max_connections: 100
     max_keepalive_connections: 20
 
+  registry_config:
+    registry_file: "data/service_registry.json"
+    health_check_interval: 10
+
   circuit_breaker_config:
     failure_threshold: 5
     recovery_timeout_seconds: 30

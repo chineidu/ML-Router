@@ -3,11 +3,11 @@ from typing import Any
 import pendulum
 from pydantic import Field, field_validator
 
-from src.schemas.base import BaseSchema
+from src.schemas.base import BaseSchema, Float
 from src.schemas.types import ModelTypeEnum
 
 
-class InferenceResponse(BaseSchema):
+class InferenceResponseSchema(BaseSchema):
     """Schema for an inference response."""
 
     request_id: str = Field(description="Unique identifier for the inference request.")
@@ -18,7 +18,7 @@ class InferenceResponse(BaseSchema):
     prediction: dict[str, Any] = Field(
         description="The prediction result from the model inference."
     )
-    processing_time_ms: float = Field(
+    processing_time_ms: Float = Field(
         description="Time taken to process the inference request in milliseconds."
     )
     timestamp: str = Field(

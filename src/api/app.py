@@ -12,6 +12,7 @@ from slowapi.errors import RateLimitExceeded
 from src.api.core.exceptions import BaseAPIError, api_error_handler
 from src.api.core.lifespan import lifespan
 from src.api.core.middleware import MIDDLEWARE_STACK
+from src.api.routes import health, predict
 
 # from src.api.routes import proxy
 from src.config import app_config, app_settings
@@ -30,7 +31,7 @@ def create_application() -> FastAPI:
     FastAPI
         A configured FastAPI application instance.
     """
-    # prefix: str = app_config.api_config.prefix
+    prefix: str = app_config.api_config.prefix
     # auth_prefix: str = app_config.api_config.auth_prefix
 
     app = FastAPI(
@@ -56,7 +57,8 @@ def create_application() -> FastAPI:
         app.add_middleware(mdlware)
 
     # Include routers
-    # app.include_router(proxy.router, prefix=prefix)
+    app.include_router(health.router, prefix=prefix)
+    app.include_router(predict.router, prefix=prefix)
 
     # Add exception handlers
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore
@@ -65,6 +67,7 @@ def create_application() -> FastAPI:
     return app
 
 
+# Module-level app for ASGI servers (Required)
 app: FastAPI = create_application()
 
 if __name__ == "__main__":

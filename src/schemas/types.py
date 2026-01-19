@@ -10,13 +10,13 @@ class EnvironmentEnum(StrEnum):
 
 
 class ModelTypeEnum(StrEnum):
-    CLASSIFICATION = "classification"
-    REGRESSION = "regression"
-    CLUSTERING = "clustering"
-    RECOMMENDATION = "recommendation"
-    SENTIMENT = "sentiment"
     ANOMALY_DETECTION = "anomaly_detection"
+    CLASSIFICATION = "classification"
+    CLUSTERING = "clustering"
     NER = "ner"
+    RECOMMENDATION = "recommendation"
+    REGRESSION = "regression"
+    SENTIMENT = "sentiment"
 
 
 class ErrorCodeEnum(StrEnum):
@@ -38,10 +38,10 @@ class ErrorCodeEnum(StrEnum):
 class ResourceEnum(StrEnum):
     """The type of resource to use."""
 
+    BACKEND_REGISTRY = "backend_registry"
     CACHE = "cache"
     DATABASE = "database"
     RATE_LIMITER = "rate_limiter"
-    RABBITMQ_PRODUCER = "rabbitmq_producer"
 
 
 class StatusEnum(StrEnum):

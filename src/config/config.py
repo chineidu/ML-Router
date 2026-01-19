@@ -8,6 +8,29 @@ from src import ROOT
 
 
 @dataclass(slots=True, kw_only=True)
+class RegistryConfig:
+    """Service registry configuration class."""
+
+    registry_file: str = field(
+        metadata={"description": "Path to the service registry file."}
+    )
+    health_check_interval: int = field(
+        default=10,
+        metadata={
+            "description": "Interval in seconds for performing health checks on services."
+        },
+    )
+
+    def __post_init__(self) -> None:
+        """Resolve registry_file path relative to project root if it's relative."""
+
+        registry_path = Path(self.registry_file)
+        if not registry_path.is_absolute():
+            # Resolve relative to ROOT
+            self.registry_file = str(ROOT / self.registry_file)
+
+
+@dataclass(slots=True, kw_only=True)
 class CircuitBreakerConfig:
     failure_threshold: int = field(
         default=5,
@@ -108,16 +131,19 @@ class APIConfig:
 class AppConfig(BaseModel):
     """Application configuration with validation."""
 
-    circuit_breaker_config: CircuitBreakerConfig = Field(
-        description="Configuration settings for the circuit breaker"
-    )
     connection_config: ConnectionConfig = Field(
         description="Configuration settings for connections"
+    )
+    registry_config: RegistryConfig = Field(
+        description="Configuration settings for the service registry"
+    )
+    circuit_breaker_config: CircuitBreakerConfig = Field(
+        description="Configuration settings for the circuit breaker"
     )
     api_config: APIConfig = Field(description="Configuration settings for the API")
 
 
-config_path: Path = ROOT / "config/config.yaml"
+config_path: Path = ROOT / "src/config/config.yaml"
 config: DictConfig = OmegaConf.load(config_path).config
 resolved_cfg = OmegaConf.to_container(config, resolve=True)
 app_config: AppConfig = AppConfig(**dict(resolved_cfg))  # type: ignore

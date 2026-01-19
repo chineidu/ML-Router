@@ -4,7 +4,7 @@ from pathlib import Path
 
 from pythonjsonlogger import json as jsonlogger
 
-ROOT = Path(__file__).parent.absolute()
+ROOT = Path(__file__).parent.parent.absolute()  # Project root directory
 
 
 class EmojiFormatter(logging.Formatter):

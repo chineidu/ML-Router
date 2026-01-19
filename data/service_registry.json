@@ -1,0 +1,34 @@
+{
+  "svc-1": {
+    "service_id": "svc-1",
+    "service_name": "sentiment",
+    "host": "sentiment_model_1",
+    "port": 8001,
+    "protocol": "http",
+    "ttl_seconds": 10,
+    "health_check_url": "http://sentiment_model_1:8001/health",
+    "metadata": {
+      "framework": "TensorFlow",
+      "model_type": "text-classification",
+      "version": "v1.0"
+    },
+    "last_heartbeat": 1768781415.6841419,
+    "status": "healthy"
+  },
+  "svc-2": {
+    "service_id": "svc-2",
+    "service_name": "regression",
+    "host": "regression_model_1",
+    "port": 8002,
+    "protocol": "http",
+    "ttl_seconds": 10,
+    "health_check_url": "http://regression_model_1:8002/health",
+    "metadata": {
+      "framework": "Scikit-Learn",
+      "model_type": "regression",
+      "version": "v1.2"
+    },
+    "last_heartbeat": 1768781415.6838813,
+    "status": "healthy"
+  }
+}

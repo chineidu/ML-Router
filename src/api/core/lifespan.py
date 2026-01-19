@@ -1,3 +1,4 @@
+import asyncio
 import time
 import warnings
 from contextlib import asynccontextmanager
@@ -9,6 +10,7 @@ from fastapi import FastAPI
 from src import create_logger
 from src.api.core.ratelimit import limiter
 from src.config import app_config, app_settings
+from src.services.service_discovery import BackendRegistry, ServiceRegistry
 
 if TYPE_CHECKING:
     pass
@@ -52,6 +54,22 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:  # noqa: ARG001
         )
         app.state.client = client
 
+        # ---------- Setup Backend Registry ----------
+        service_registry = ServiceRegistry(
+            registry_file=app_config.registry_config.registry_file,
+            health_check_interval=app_config.registry_config.health_check_interval,
+        )
+        backend_registry: BackendRegistry = BackendRegistry(
+            service_registry=service_registry
+        )
+        await service_registry.ainitialize()
+        app.state.backend_registry = backend_registry
+
+        # Start background health check loop
+        app.state.health_check_task = asyncio.create_task(
+            service_registry.ahealth_check_loop()
+        )
+
         logger.info("✅ Shared HTTP client initialized.")
 
         # ---------- Setup rate limiter ----------
@@ -93,3 +111,20 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:  # noqa: ARG001
 
             except Exception as e:
                 logger.error(f"❌ Error shutting down the client: {e}")
+
+        # ---------- Cleanup health check task ----------
+        if hasattr(app.state, "health_check_task") and app.state.health_check_task:
+            try:
+                app.state.health_check_task.cancel()
+                logger.info("🚨 Health check task cancelled.")
+            except Exception as e:
+                logger.error(f"❌ Error cancelling health check task: {e}")
+
+        # ---------- Cleanup backend registry ----------
+        if hasattr(app.state, "backend_registry") and app.state.backend_registry:
+            try:
+                app.state.backend_registry = None
+                logger.info("🚨 Backend registry saved and shutdown.")
+
+            except Exception as e:
+                logger.error(f"❌ Error shutting down the backend registry: {e}")

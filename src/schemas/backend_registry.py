@@ -27,17 +27,15 @@ class ServiceInstance:
     health_check_url: str = field(
         metadata={"description": "URL for health checking the service instance."}
     )
-    registered_at: float = field(
-        metadata={"description": "Timestamp when the service instance was registered."}
-    )
     metadata: dict[str, Any] = field(
         default_factory=dict,
         metadata={"description": "Additional metadata for the service instance."},
     )
-    last_heartbeat: float = field(
+    last_heartbeat: float | None = field(
+        default=None,
         metadata={
             "description": "Timestamp of the last heartbeat received from the service instance."
-        }
+        },
     )
     status: StatusEnum = field(
         default=StatusEnum.UNKNOWN,
@@ -45,6 +43,13 @@ class ServiceInstance:
             "description": "Current status of the service instance (e.g., healthy, unhealthy)."
         },
     )
+
+    def __post_init__(self) -> None:
+        """Post-initialization to ensure enums are correctly set."""
+        if isinstance(self.protocol, str):
+            self.protocol = ProtocolEnum(self.protocol)
+        if isinstance(self.status, str):
+            self.status = StatusEnum(self.status)
 
     def model_dump(self) -> dict[str, Any]:
         """Converts the ServiceInstance to a dictionary."""
@@ -58,4 +63,6 @@ class ServiceInstance:
     @property
     def is_stale(self) -> bool:
         """Determines if the service instance is stale (no heartbeat in the last N seconds)."""
-        return (time.time() - self.last_heartbeat) > self.ttl_seconds
+        if self.last_heartbeat:
+            return (time.time() - self.last_heartbeat) > self.ttl_seconds
+        return False

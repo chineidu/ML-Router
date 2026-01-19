@@ -3,14 +3,17 @@ from typing import Any
 from pydantic import Field, field_validator
 
 from src.schemas.base import BaseSchema
+from src.schemas.types import ModelTypeEnum
 
 
 class InferenceRequest(BaseSchema):
     """Schema for an inference request."""
 
-    model_type: str = Field(..., description="The type of model to use for inference.")
+    model_type: ModelTypeEnum = Field(
+        description="The type of model to use for inference."
+    )
     input_data: dict[str, Any] = Field(
-        ..., description="The input data for the model inference."
+        description="The input data for the model inference."
     )
     model_version: str | None = Field(
         None, description="Optional version of the model to use for inference."

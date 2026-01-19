@@ -21,15 +21,21 @@ class ServiceRegistry:
     use a robust service discovery mechanism like Consul, etcd, or Kubernetes.
     """
 
-    def __init__(self, registry_file: str = "/tmp/service_registry.json") -> None:
+    def __init__(
+        self,
+        registry_file: str = "/tmp/service_registry.json",
+        health_check_interval: int = 10,
+    ) -> None:
         self.registry_file = Path(registry_file)
         self.registry: dict[str, ServiceInstance] = {}
-        self.health_check_interval = 10  # seconds
+        self.health_check_interval = health_check_interval  # seconds
         self._lock = asyncio.Lock()
 
     async def ainitialize(self) -> None:
-        """Initialize the registry by loading from disk."""
+        """Initialize the registry by loading from disk and performing an initial health check."""
         await self._aload_registry()
+        # Perform initial health check to mark services as healthy immediately
+        await self._acheck_all_health()
         logger.info("Service registry initialized.")
 
     async def _aload_registry(self) -> None:
@@ -43,16 +49,28 @@ class ServiceRegistry:
                     svc_id: ServiceInstance(**svc_data)
                     for svc_id, svc_data in data.items()
                 }
+                logger.info(f"Loaded {len(self.registry)} services from registry.")
             except Exception as e:
                 logger.error(f"Error loading service registry: {e}")
                 self.registry = {}
+        else:
+            logger.warning(
+                f"Registry file {self.registry_file} does not exist. Starting with empty registry."
+            )
+            self.registry = {}
 
     async def _asave_registry(self) -> None:
         """Saves the service registry to disk."""
-        data: dict[str, dict[str, Any]] = {
-            svc_id: instance.model_dump() for svc_id, instance in self.registry.items()
-        }
-        await anyio.Path(self.registry_file).write_text(json.dumps(data, indent=2))
+        try:
+            data: dict[str, dict[str, Any]] = {
+                svc_id: instance.model_dump()
+                for svc_id, instance in self.registry.items()
+            }
+            await anyio.Path(self.registry_file).write_text(json.dumps(data, indent=2))
+        except (OSError, PermissionError) as e:
+            logger.warning(
+                f"Unable to save registry to {self.registry_file}: {e}. Registry updates will not persist."
+            )
 
     async def aregister(self, instance: ServiceInstance) -> None:
         """Register a new service instance."""
@@ -87,26 +105,6 @@ class ServiceRegistry:
                     f"Service ID {service_id} not found in registry for deregistration."
                 )
 
-    async def aheartbeat(self, service_id: str) -> None:
-        """Update the last heartbeat timestamp for a service instance."""
-        if service_id not in self.registry:
-            return
-
-        async with self._lock:
-            # Thread-safe update (prevents race conditions)
-            if service_id in self.registry:
-                instance = self.registry[service_id]
-                instance.last_heartbeat = time.time()
-                self.registry[service_id].status = StatusEnum.HEALTHY
-                await self._asave_registry()
-                logger.debug(
-                    f"Heartbeat received for service: '{instance.service_name}' [{service_id}]"
-                )
-            else:
-                logger.warning(
-                    f"Service ID {service_id} not found in registry for heartbeat."
-                )
-
     async def aget_healthy_instances(self, service_name: str) -> list[ServiceInstance]:
         """Get all healthy service instances."""
         return [
@@ -131,9 +129,17 @@ class ServiceRegistry:
         try:
             response = await aclient.get(instance.health_check_url)
             if response.status_code == 200:
+                instance.last_heartbeat = time.time()
                 instance.status = StatusEnum.HEALTHY
+                logger.info(
+                    f"Health check passed for service '{instance.service_name}' [{service_id}]"
+                )
             else:
                 instance.status = StatusEnum.UNHEALTHY
+                logger.warning(
+                    f"Health check returned {response.status_code} for service "
+                    f"'{instance.service_name}' [{service_id}]"
+                )
 
         except Exception as e:
             logger.warning(
@@ -183,9 +189,15 @@ class BackendRegistry:
         self.service_registry = service_registry
         # Creates: {ModelTypeEnum.SENTIMENT: 0, ModelTypeEnum.CLASSIFICATION: 0, ...}
         self.current_idx: dict[ModelTypeEnum, int] = dict.fromkeys(ModelTypeEnum, 0)
+        logger.info("Backend registry initialized.")
 
-    async def aget_endpoint(self, model_type: ModelTypeEnum) -> str | None:
+    async def aget_endpoint(self, model_type: ModelTypeEnum | str) -> str | None:
         """Get the endpoint URL of an available backend for the given model type."""
+        model_type = (
+            model_type
+            if isinstance(model_type, ModelTypeEnum)
+            else ModelTypeEnum(model_type)
+        )
         service_name = model_type.value
         healthy_instances = await self.service_registry.aget_healthy_instances(
             service_name
@@ -207,8 +219,13 @@ class BackendRegistry:
         return f"{instance.endpoint_url}/predict"
 
     async def aget_all_instances(
-        self, model_type: ModelTypeEnum
+        self, model_type: ModelTypeEnum | str
     ) -> list[ServiceInstance]:
         """Get all healthy backend instances for the given model type."""
+        model_type = (
+            model_type
+            if isinstance(model_type, ModelTypeEnum)
+            else ModelTypeEnum(model_type)
+        )
         service_name = model_type.value
         return await self.service_registry.aget_healthy_instances(service_name)
