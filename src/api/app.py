@@ -6,6 +6,7 @@ import warnings
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
@@ -54,7 +55,12 @@ def create_application() -> FastAPI:
         lifespan=lifespan,
     )
 
-    # Configure CORS middleware
+    # Add custom middleware (LIFO: Last In, First Out for requests)
+    # These are added first (innermost layer, closest to routes)
+    for mdlware in MIDDLEWARE_STACK:
+        app.add_middleware(mdlware)
+
+    # Configure CORS middleware (outer layer to ensure error responses have CORS headers)
     app.add_middleware(
         CORSMiddleware,  # type: ignore
         allow_origins=app_config.api_config.middleware.cors.allow_origins,
@@ -63,9 +69,8 @@ def create_application() -> FastAPI:
         allow_headers=app_config.api_config.middleware.cors.allow_headers,
     )
 
-    # Add custom middleware (LIFO: Last In, First Out for requests)
-    for mdlware in MIDDLEWARE_STACK:
-        app.add_middleware(mdlware)
+    # Add GZip middleware for response compression (outermost layer)
+    app.add_middleware(GZipMiddleware, minimum_size=1000)
 
     # Include routers
     app.include_router(health.router, prefix=prefix)

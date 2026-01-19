@@ -3,15 +3,11 @@ from typing import Any, ClassVar
 from pydantic import ConfigDict, Field
 
 from src.schemas.base import BaseSchema
-from src.schemas.types import ModelTypeEnum
 
 
 class InferenceRequest(BaseSchema):
     """Schema for an inference request."""
 
-    model_type: ModelTypeEnum = Field(
-        description="The type of model to use for inference.", validate_default=True
-    )
     input_data: dict[str, Any] = Field(
         description="The input data for the model inference."
     )
@@ -29,7 +25,6 @@ class InferenceRequest(BaseSchema):
     _custom_model_config: ClassVar[ConfigDict] = BaseSchema.model_config.copy()
     _json_schema_extra: ClassVar[dict[str, Any]] = {
         "example": {
-            "model_type": "sentiment",
             "input_data": {"text": "I love using this ML model router!"},
             "model_version": "v1.0.0",
             "timeout": 10,
