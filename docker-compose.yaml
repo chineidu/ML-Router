@@ -57,6 +57,10 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      # Build argument for LOCAL DEVELOPMENT ONLY on macOS
+      # Production uses Kubernetes/ECS/Cloud Run, not docker-compose
+      args:
+        RUN_AS_USER: root # Required for macOS Docker socket access
     command: >
       python -m src.api.app
     ports:
@@ -68,6 +72,11 @@ services:
       - ./src:/app/src:ro
       # Mount data directory for persistent storage
       - ./data:/app/data
+      # Mount Docker socket for service discovery via Docker API
+      # SECURITY NOTE: This gives container access to Docker daemon
+      # - For DEV/TESTING only - acceptable risk in local development
+      # - For PRODUCTION: Use Kubernetes, Consul, etcd, or other service mesh
+      - /var/run/docker.sock:/var/run/docker.sock
 
     # environment:
     # Override database host for Docker networking
@@ -156,17 +165,70 @@ services:
     env_file:
       - .env
     volumes:
-      # Mount source code as read-only for live updates without rebuilding
       - ./src:/app/src:ro
     restart: unless-stopped
     healthcheck:
-      # Use curl to check health endpoint if the Docker image has curl installed
       test:
         [
           "CMD",
           "python3",
           "-c",
           "import urllib.request; urllib.request.urlopen('http://localhost:8003/health')",
+        ]
+      interval: 15s
+      timeout: 3s
+      retries: 5
+
+  classification_model_2:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: >
+      python -m src.mock.app
+      --model classification --port 8003 --latency 150
+    ports:
+      - "8004:8003" # Map host port 8004 to container port 8003
+    env_file:
+      - .env
+    volumes:
+      - ./src:/app/src:ro
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python3",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8003/health')",
+        ]
+      interval: 15s
+      timeout: 3s
+      retries: 5
+
+  ner_model_1:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      # Note that internally, port 8004 is available but not available on host.
+      # Therefore, we map host port 8005 to container port 8004. Or to make it easier,
+      # We map container port 8005 to host port 8005.
+    command: >
+      python -m src.mock.app
+      --model ner --port 8005 --latency 1050
+    ports:
+      - "8005:8005" # Map host port 8005 to container port 8005
+    env_file:
+      - .env
+    volumes:
+      - ./src:/app/src:ro
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python3",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8005/health')",
         ]
       interval: 15s
       timeout: 3s

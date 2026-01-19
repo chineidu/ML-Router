@@ -2,10 +2,21 @@ import argparse
 
 import uvicorn
 
+from src import create_logger
 from src.mock.mock_backends import create_backend_app
 
 # Module-level app for ASGI servers (Required)
 app = None
+
+# ---------------------------------------------------------
+# LOGGING INITIALIZATION (runs once per worker process)
+# ---------------------------------------------------------
+logger = create_logger(
+    "src.mock.app",
+    structured=False,
+    log_file=None,
+)
+logger.info("Initializing FastAPI application")
 
 
 def main() -> None:
@@ -31,8 +42,8 @@ def main() -> None:
 
     app = create_backend_app(args.model, args.latency)
 
-    print(f"Starting {args.model} backend on port {args.port}")
-    print(f"Simulated latency: {args.latency}ms")
+    logger.info(f"Starting {args.model} backend on port {args.port}")
+    logger.info(f"Simulated latency: {args.latency}ms")
 
     uvicorn.run(
         app,

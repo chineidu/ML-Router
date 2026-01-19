@@ -8,6 +8,7 @@ config:
 
   registry_config:
     registry_file: "data/service_registry.json"
+    load_registry_from_file: false
     health_check_interval: 10
 
   circuit_breaker_config:

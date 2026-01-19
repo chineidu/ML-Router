@@ -34,9 +34,19 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # ==============================================================================
 FROM python_base AS prod
 
-# Create non-root user for security best practices
+# Build argument to control which user runs the application
+# Default to 'appuser' for production security
+# Override with --build-arg RUN_AS_USER=root for local development on macOS
+ARG RUN_AS_USER=appuser
+
+# For Docker socket access from within the container (DEV only, not for PROD in production)
+# Create docker group (with GID matching host docker group, typically 999 on macOS)
+# This allows appuser to access the mounted docker socket
+RUN groupadd -g 999 docker || true
+
+# Create non-root user for security best practices and add to docker group
 RUN groupadd -r appuser \
-    && useradd -r -g appuser -d /app appuser
+    && useradd -r -g appuser -G docker -d /app appuser
 
 WORKDIR /app
 
@@ -54,8 +64,17 @@ COPY --chown=appuser:appuser . /app
 # Make startup scripts executable (must be done before switching to non-root user)
 RUN chmod +x /app/docker/*.sh
 
-# Switch to non-root user to run application
-USER appuser
+# SECURITY CONFIGURATION:
+# =======================
+# Production (default):  USER appuser (secure, non-root)
+# Development (macOS):   USER root (for Docker socket access)
+#
+# Build for production:  docker build .
+# Build for dev (macOS): docker build --build-arg RUN_AS_USER=root .
+#
+# Production alternative: Use Kubernetes/Consul/etcd instead of Docker socket
+
+USER ${RUN_AS_USER}
 
 # Add virtual environment to PATH for direct command access
 ENV PATH="/app/.venv/bin:$PATH"

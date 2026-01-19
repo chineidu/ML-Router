@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     pass
 
 warnings.filterwarnings("ignore")
-logger = create_logger(name="api_lifespan")
+logger = create_logger(name=__name__)
 BASE_URL: str = (
     f"{app_settings.PROTOCOL.value}://{app_settings.HOST}:{app_settings.PORT}"
 )
@@ -57,6 +57,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:  # noqa: ARG001
         # ---------- Setup Backend Registry ----------
         service_registry = ServiceRegistry(
             registry_file=app_config.registry_config.registry_file,
+            load_registry_from_file=app_config.registry_config.load_registry_from_file,
             health_check_interval=app_config.registry_config.health_check_interval,
         )
         backend_registry: BackendRegistry = BackendRegistry(

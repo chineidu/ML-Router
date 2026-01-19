@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
+from src import create_logger
 from src.api.core.exceptions import BaseAPIError, api_error_handler
 from src.api.core.lifespan import lifespan
 from src.api.core.middleware import MIDDLEWARE_STACK
@@ -18,6 +19,16 @@ from src.api.routes import health, predict
 from src.config import app_config, app_settings
 
 warnings.filterwarnings("ignore")
+
+# ---------------------------------------------------------
+# LOGGING INITIALIZATION (runs once per worker process)
+# ---------------------------------------------------------
+logger = create_logger(
+    "src.api.app",
+    structured=False,
+    log_file=None,
+)
+logger.info("Initializing FastAPI application")
 
 
 def create_application() -> FastAPI:

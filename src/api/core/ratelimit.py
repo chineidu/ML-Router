@@ -5,7 +5,7 @@ from slowapi.util import get_remote_address
 
 from src import create_logger
 
-logger = create_logger(name="rate_limit")
+logger = create_logger(name=__name__)
 
 
 class RateLimiter:

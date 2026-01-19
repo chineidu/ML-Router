@@ -1,0 +1,87 @@
+{
+  "regression-regression_model_1-82392894e13d": {
+    "service_id": "regression-regression_model_1-82392894e13d",
+    "service_name": "regression",
+    "host": "regression_model_1",
+    "port": 8002,
+    "protocol": "http",
+    "ttl_seconds": 30,
+    "health_check_url": "http://regression_model_1:8002/health",
+    "metadata": {
+      "container_id": "82392894e13dcc7bf83f75cc9537bed83e3f14e46f064a0e13c65e7971992f5f",
+      "container_name": "ml-router-regression_model_1-1",
+      "compose_service": "regression_model_1",
+      "image": "ml-router-regression_model_1:latest"
+    },
+    "last_heartbeat": 1768846242.908423,
+    "status": "healthy"
+  },
+  "classification-classification_model_2-99719e8c320e": {
+    "service_id": "classification-classification_model_2-99719e8c320e",
+    "service_name": "classification",
+    "host": "classification_model_2",
+    "port": 8003,
+    "protocol": "http",
+    "ttl_seconds": 30,
+    "health_check_url": "http://classification_model_2:8003/health",
+    "metadata": {
+      "container_id": "99719e8c320ec9dc272a32b00dd2d0101c91a4cff82cda8a950acad4eb0982b4",
+      "container_name": "ml-router-classification_model_2-1",
+      "compose_service": "classification_model_2",
+      "image": "ml-router-classification_model_2:latest"
+    },
+    "last_heartbeat": 1768846242.9171038,
+    "status": "healthy"
+  },
+  "classification-classification_model_1-be2d3d43567c": {
+    "service_id": "classification-classification_model_1-be2d3d43567c",
+    "service_name": "classification",
+    "host": "classification_model_1",
+    "port": 8003,
+    "protocol": "http",
+    "ttl_seconds": 30,
+    "health_check_url": "http://classification_model_1:8003/health",
+    "metadata": {
+      "container_id": "be2d3d43567ca5bb689df75c1b3df94c1e56fa539acf5d3a2e570cdcb4043815",
+      "container_name": "ml-router-classification_model_1-1",
+      "compose_service": "classification_model_1",
+      "image": "ml-router-classification_model_1:latest"
+    },
+    "last_heartbeat": 1768846242.9188263,
+    "status": "healthy"
+  },
+  "ner-ner_model_1-669a71c751a8": {
+    "service_id": "ner-ner_model_1-669a71c751a8",
+    "service_name": "ner",
+    "host": "ner_model_1",
+    "port": 8005,
+    "protocol": "http",
+    "ttl_seconds": 30,
+    "health_check_url": "http://ner_model_1:8005/health",
+    "metadata": {
+      "container_id": "669a71c751a888572c9d683a1522cc1223913479c606efdbe696765a886e27c2",
+      "container_name": "ml-router-ner_model_1-1",
+      "compose_service": "ner_model_1",
+      "image": "ml-router-ner_model_1:latest"
+    },
+    "last_heartbeat": 1768846242.9107628,
+    "status": "healthy"
+  },
+  "sentiment-sentiment_model_1-03f9bd8c6ca9": {
+    "service_id": "sentiment-sentiment_model_1-03f9bd8c6ca9",
+    "service_name": "sentiment",
+    "host": "sentiment_model_1",
+    "port": 8001,
+    "protocol": "http",
+    "ttl_seconds": 30,
+    "health_check_url": "http://sentiment_model_1:8001/health",
+    "metadata": {
+      "container_id": "03f9bd8c6ca993a594185576662d4e94249735451f65b660f47206c46ab5bf03",
+      "container_name": "ml-router-sentiment_model_1-1",
+      "compose_service": "sentiment_model_1",
+      "image": "ml-router-sentiment_model_1:latest"
+    },
+    "last_heartbeat": 1768846242.9207017,
+    "status": "healthy"
+  }
+}

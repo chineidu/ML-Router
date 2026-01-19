@@ -1,7 +1,7 @@
 from typing import Any
 
 import pendulum
-from pydantic import Field, field_validator
+from pydantic import Field
 
 from src.schemas.base import BaseSchema, Float
 from src.schemas.types import ModelTypeEnum
@@ -12,7 +12,7 @@ class InferenceResponseSchema(BaseSchema):
 
     request_id: str = Field(description="Unique identifier for the inference request.")
     model_type: ModelTypeEnum = Field(
-        description="The type of model used for inference."
+        description="The type of model used for inference.", validate_default=True
     )
     model_version: str = Field(description="Version of the model used for inference.")
     prediction: dict[str, Any] = Field(
@@ -28,13 +28,3 @@ class InferenceResponseSchema(BaseSchema):
     backend_endpoint: str = Field(
         description="The backend endpoint that processed the inference request."
     )
-
-    @field_validator("model_type", mode="after")
-    @classmethod
-    def validate_model_type(cls, v: ModelTypeEnum) -> str:
-        """Ensures model_type is a valid ModelTypeEnum value."""
-        if v not in ModelTypeEnum:
-            raise ValueError(
-                f"Invalid model_type: {v}. Must be one of {list(ModelTypeEnum)}."
-            )
-        return v

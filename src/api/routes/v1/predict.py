@@ -16,7 +16,8 @@ if TYPE_CHECKING:
     import httpx
 
     from src.services.service_discovery import BackendRegistry
-logger = create_logger(name="routes.predict")
+
+logger = create_logger(name=__name__)
 LIMIT_VALUE: int = app_config.api_config.ratelimit.default_rate
 router = APIRouter(tags=["predict"], default_response_class=MsgSpecJSONResponse)
 

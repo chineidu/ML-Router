@@ -1,11 +1,11 @@
 """Custom middleware for request ID assignment, logging, and error handling."""
 
-import json
 import time
 from collections.abc import Awaitable, Callable
 from typing import Any
 from uuid import uuid4
 
+import msgspec
 from fastapi import Request, Response, status
 from starlette.middleware.base import BaseHTTPMiddleware
 
@@ -18,7 +18,7 @@ from src.api.core.exceptions import (
 from src.api.core.responses import MsgSpecJSONResponse
 from src.schemas.types import ErrorCodeEnum
 
-logger = create_logger(name="middleware")
+logger = create_logger(name=__name__)
 
 
 class RequestIDMiddleware(BaseHTTPMiddleware):
@@ -69,7 +69,8 @@ class LoggingMiddleware(BaseHTTPMiddleware):
             "request_id": request_id,
         }
 
-        logger.info(f"{json.dumps(log)}")
+        # Use msgspec for optimized serialization
+        logger.info(msgspec.json.encode(log).decode("utf-8"))
 
         return response
 

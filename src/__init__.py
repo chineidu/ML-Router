@@ -1,16 +1,90 @@
+"""
+Asynchronous, non-blocking logging configuration for the application.
+
+This module provides a production-grade logging setup based on Python's
+QueueHandler / QueueListener pattern. The primary goals are:
+
+- Ensure that application threads (FastAPI requests, asyncio tasks, workers)
+  never block on log I/O (stdout, files, JSON serialization).
+- Centralize all log formatting and output in a single background thread.
+- Enforce a single, process-wide logging configuration to avoid duplicated
+  handlers, multiple listener threads, and inconsistent formats.
+
+Architecture overview
+---------------------
+
+    Application code (async / sync)
+                |
+                v
+        logging.Logger
+                |
+                v
+        QueueHandler (non-blocking)
+                |
+                v
+        Queue[LogRecord]
+                |
+                v
+        QueueListener (background thread)
+                |
+                v
+    StreamHandler / FileHandler (I/O + formatting)
+
+Key design decisions
+--------------------
+
+- A single global Queue and QueueListener are created per process.
+- The first call to `create_logger()` initializes the logging system
+  ("first caller wins").
+- Structured (JSON) vs plain-text logging is a process-wide decision and
+  cannot be changed after initialization.
+- All real handlers (console, file, etc.) are attached to the QueueListener,
+  never directly to loggers, to guarantee non-blocking behavior.
+- Loggers returned by `create_logger()` only have a QueueHandler attached.
+
+This design is suitable for:
+- FastAPI / asyncio applications
+- Background workers (RabbitMQ, Celery-like systems)
+- High-throughput or I/O-sensitive services
+
+Usage
+-----
+
+Call `create_logger()` early in application startup (e.g. in `main.py` or
+FastAPI lifespan startup) to configure logging:
+
+    logger = create_logger(
+        __name__,
+        structured=False,
+        log_file="app.log",
+    )
+
+Subsequent calls simply return non-blocking loggers that share the same
+queue and listener.
+"""
+
+import atexit
 import logging
+import logging.handlers
 import sys
 from pathlib import Path
+from queue import Queue
+from typing import Optional
 
-from pythonjsonlogger import json as jsonlogger
+from pythonjsonlogger import jsonlogger
 
-ROOT = Path(__file__).parent.parent.absolute()  # Project root directory
+ROOT = Path(__file__).parent.parent.absolute()
+
+
+# -------------------------------------------------------------------
+# Formatter
+# -------------------------------------------------------------------
 
 
 class EmojiFormatter(logging.Formatter):
-    """Custom formatter that adds emojis based on log level."""
+    """Plain-text formatter that adds an emoji based on log level."""
 
-    EMOJIS: dict[int, str] = {
+    EMOJIS = {
         logging.DEBUG: "🐛",
         logging.INFO: "ℹ️",
         logging.WARNING: "⚠️",
@@ -19,118 +93,117 @@ class EmojiFormatter(logging.Formatter):
     }
 
     def format(self, record: logging.LogRecord) -> str:
-        """Add emoji to the record"""
         record.emoji = self.EMOJIS.get(record.levelno, "")
         return super().format(record)
 
 
-def create_logger(
-    name: str = "logger",
-    log_level: int = logging.INFO,
-    log_file: str | None = None,
-    structured: bool = False,
-) -> logging.Logger:
-    """
-    Create a configured logger with structured JSON output.
-
-    Parameters:
-    -----------
-    name : str, optional
-        Name of the logger, by default 'logger'
-    log_level : int, optional
-        Logging level, by default logging.INFO
-    log_file : str, optional
-        Path to log file. If None, logs to console, by default None
-    structured : bool, optional
-        If True, outputs JSON-formatted logs. If False, uses plain text format, by default False
-
-    Returns:
-    --------
-    logging.Logger
-        Configured logger instance
-    """
-    # Create logger
-    logger = logging.getLogger(name)
-    logger.setLevel(log_level)
-
-    # Clear any existing handlers
-    logger.handlers.clear()
-
-    # Create formatter based on structured flag
+def _build_formatter(structured: bool) -> logging.Formatter:
+    """Create the appropriate formatter for structured or plain logs."""
     if structured:
-        # JSON formatter for structured logging
-        formatter = jsonlogger.JsonFormatter(
+        return jsonlogger.JsonFormatter(
             fmt="%(asctime)s %(name)s %(levelname)s %(message)s",
             datefmt="%Y-%m-%d %H:%M:%S",
-            # Include extra fields passed via logger.info(..., extra={...})
             rename_fields={
                 "asctime": "timestamp",
                 "levelname": "level",
-                "name": "logger_name",
+                "name": "logger",
             },
         )
-    else:
-        # Plain text formatter with emojis
-        formatter = EmojiFormatter(
-            fmt="%(asctime)s - %(name)s - [%(levelname)s] %(emoji)s - %(message)s",
-            datefmt="%Y-%m-%d %H:%M:%S",
-        )
+
+    return EmojiFormatter(
+        fmt="%(asctime)s - %(name)s - [%(levelname)s] %(emoji)s - %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+
+
+# -------------------------------------------------------------------
+# Global async logging state
+# -------------------------------------------------------------------
+
+_LOG_QUEUE: Queue[logging.LogRecord] = Queue(-1)
+_LISTENER: Optional[logging.handlers.QueueListener] = None
+_LOGGING_INITIALIZED = False
+_STRUCTURED_ENABLED: Optional[bool] = None
+
+
+def _setup_listener(
+    *,
+    level: int,
+    structured: bool,
+    log_file: str | Path | None,
+) -> None:
+    """Initialize the global QueueListener (idempotent)."""
+    global _LISTENER, _LOGGING_INITIALIZED, _STRUCTURED_ENABLED
+
+    if _LOGGING_INITIALIZED:
+        return
+
+    formatter = _build_formatter(structured)
+
+    handlers: list[logging.Handler] = []
 
     # Console handler
-    console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setLevel(log_level)
-    console_handler.setFormatter(formatter)
-    logger.addHandler(console_handler)
+    console = logging.StreamHandler(sys.stdout)
+    console.setLevel(level)
+    console.setFormatter(formatter)
+    handlers.append(console)
 
-    # File handler (optional)
+    # Optional file handler
     if log_file:
         file_handler = logging.FileHandler(log_file)
-        file_handler.setLevel(log_level)
+        file_handler.setLevel(level)
         file_handler.setFormatter(formatter)
-        logger.addHandler(file_handler)
+        handlers.append(file_handler)
+
+    _LISTENER = logging.handlers.QueueListener(
+        _LOG_QUEUE,
+        *handlers,
+        respect_handler_level=True,
+    )
+    _LISTENER.start()
+
+    atexit.register(_LISTENER.stop)
+
+    _LOGGING_INITIALIZED = True
+    _STRUCTURED_ENABLED = structured
+
+
+# -------------------------------------------------------------------
+# Public API (backward compatible)
+# -------------------------------------------------------------------
+
+
+def create_logger(
+    name: str = "logger",
+    *,
+    level: int = logging.INFO,
+    structured: bool = False,
+    log_file: str | Path | None = None,
+) -> logging.Logger:
+    """
+    Create or return a non-blocking logger.
+
+    Notes
+    -----
+    - Logging configuration is process-wide.
+    - The first call initializes the logging system.
+    - Structured logging cannot be changed after initialization.
+    """
+    _setup_listener(
+        level=level,
+        structured=structured,
+        log_file=log_file,
+    )
+
+    logger = logging.getLogger(name)
+    logger.setLevel(level)
+
+    if not any(isinstance(h, logging.handlers.QueueHandler) for h in logger.handlers):
+        logger.handlers.clear()
+        logger.addHandler(logging.handlers.QueueHandler(_LOG_QUEUE))
+        logger.propagate = False
 
     return logger
 
 
-def add_file_handler(
-    logger: logging.Logger, log_file: str | Path, structured: bool = False
-) -> logging.FileHandler:
-    """Dynamically adds a file handler using the standard app format.
-
-    Parameters
-    ----------
-    logger : logging.Logger
-        The logger instance to which the file handler will be added.
-    log_file : str | Path
-        The path to the log file.
-    structured : bool, optional
-        If True, outputs JSON-formatted logs. If False, uses plain text format, by default False
-
-    Returns
-    -------
-    logging.FileHandler
-        The added file handler instance.
-    """
-    if structured:
-        formatter = jsonlogger.JsonFormatter(
-            fmt="%(asctime)s %(name)s %(levelname)s %(message)s",
-            datefmt="%Y-%m-%d %H:%M:%S",
-            rename_fields={
-                "asctime": "timestamp",
-                "levelname": "level",
-                "name": "logger_name",
-            },
-        )
-    else:
-        formatter = EmojiFormatter(
-            fmt="%(asctime)s - %(name)s - [%(levelname)s] %(emoji)s - %(message)s",
-            datefmt="%Y-%m-%d %H:%M:%S",
-        )
-
-    file_handler = logging.FileHandler(log_file)
-    file_handler.setFormatter(formatter)
-    logger.addHandler(file_handler)
-    return file_handler
-
-
-__all__ = ["ROOT"]
+__all__ = ["ROOT", "create_logger"]

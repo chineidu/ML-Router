@@ -16,7 +16,7 @@ from fastapi.encoders import jsonable_encoder
 from src import create_logger
 from src.config import app_settings
 
-logger = create_logger(name="cache_utilities")
+logger = create_logger(name=__name__)
 type CacheDecorator = Callable[..., Callable[..., Coroutine[Any, Any, Any]]]
 
 

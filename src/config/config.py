@@ -14,6 +14,10 @@ class RegistryConfig:
     registry_file: str = field(
         metadata={"description": "Path to the service registry file."}
     )
+    load_registry_from_file: bool = field(
+        default=True,
+        metadata={"description": "Whether to load the registry from file on startup."},
+    )
     health_check_interval: int = field(
         default=10,
         metadata={
