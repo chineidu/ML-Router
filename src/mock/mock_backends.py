@@ -167,7 +167,7 @@ MODEL_CLASSES = {
 def create_backend_app(model_type: str, latency_ms: int) -> FastAPI:
     """Factory function to create backend apps"""
 
-    app = FastAPI(title=f"Mock {model_type} Backend")
+    app = FastAPI(title=f"Mock '{model_type}' Backend")
 
     # Initialize appropriate model
     if model_type == "sentiment":
@@ -179,13 +179,16 @@ def create_backend_app(model_type: str, latency_ms: int) -> FastAPI:
     elif model_type == "ner":
         model = MODEL_CLASSES["ner"](latency_ms)
     else:
-        raise ValueError(f"Unknown model type: {model_type}")
+        raise ValueError(f"Unknown model type: '{model_type}'")
 
     @app.get("/health")
     async def health() -> dict[str, str]:
         """Health check endpoint"""
         return {"status": "healthy", "model": model.model_name}
 
+    # Simulate different prediction endpoints
+    @app.post("/extract-ner", response_model=PredictionResponseSchema)
+    @app.post("/classify", response_model=PredictionResponseSchema)
     @app.post("/predict", response_model=PredictionResponseSchema)
     async def predict(input_data: PredictionRequestSchema) -> PredictionResponseSchema:
         """Prediction endpoint"""
@@ -204,7 +207,7 @@ def create_backend_app(model_type: str, latency_ms: int) -> FastAPI:
         else:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Unsupported model type: {model_type}",
+                detail=f"Unsupported model type: '{model_type}'",
             )
 
         return PredictionResponseSchema(**result)

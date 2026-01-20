@@ -17,6 +17,9 @@ config:
     expected_exception_types:
       - ConnectionError
       - TimeoutError
+  load_balancer_config:
+    strategy: weighted
+
   api_config:
     title: TaskFlow API
     name: "${.title}"

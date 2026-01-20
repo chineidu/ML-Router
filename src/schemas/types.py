@@ -27,8 +27,6 @@ class ErrorCodeEnum(StrEnum):
     INTERNAL_SERVER_ERROR = "internal_server_error"
     INVALID_INPUT = "invalid_input"
     MAX_RETRIES_EXCEEDED = "max_retries_exceeded"
-    POISON_MESSAGE = "poison_message"
-    RABBITMQ_ERROR = "rabbitmq_error"
     RESOURCES_NOT_FOUND = "resources_not_found"
     UNAUTHORIZED = "unauthorized"
     TIMEOUT_ERROR = "timeout_error"
@@ -51,19 +49,10 @@ class StatusEnum(StrEnum):
     UNKNOWN = "unknown"
 
 
-class TaskEventTypeEnum(StrEnum):
-    TASK_CREATED = "task.created"
-    TASK_STARTED = "task.started"
-    TASK_PROGRESS = "task.progress"
-    TASK_ROUTED_TO_DELAY_QUEUE = "task.routed_to_delay_queue"
-    TASK_COMPLETED = "task.completed"
-    TASK_FAILED = "task.failed"
-
-
-class PriorityEnum(StrEnum):
-    LOW = "low"
-    MEDIUM = "medium"
-    HIGH = "high"
+class LoadBalancerStrategyEnum(StrEnum):
+    LEAST_CONNECTIONS = "least_connections"
+    ROUND_ROBIN = "round_robin"
+    WEIGHTED = "weighted"
 
 
 class CircuitBreakerStateEnum(StrEnum):

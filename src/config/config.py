@@ -5,6 +5,7 @@ from omegaconf import DictConfig, OmegaConf
 from pydantic import BaseModel, Field
 
 from src import ROOT
+from src.schemas.types import LoadBalancerStrategyEnum
 
 
 @dataclass(slots=True, kw_only=True)
@@ -78,6 +79,18 @@ class ConnectionConfig:
 
 
 @dataclass(slots=True, kw_only=True)
+class LoadBalancerConfig:
+    """Load balancer configuration class."""
+
+    strategy: LoadBalancerStrategyEnum = field(
+        default=LoadBalancerStrategyEnum.ROUND_ROBIN,
+        metadata={
+            "description": "Load balancing strategy (e.g., round_robin, weighted_round_robin)."
+        },
+    )
+
+
+@dataclass(slots=True, kw_only=True)
 class CORS:
     """CORS configuration class."""
 
@@ -143,6 +156,9 @@ class AppConfig(BaseModel):
     )
     circuit_breaker_config: CircuitBreakerConfig = Field(
         description="Configuration settings for the circuit breaker"
+    )
+    load_balancer_config: LoadBalancerConfig = Field(
+        description="Configuration settings for the load balancer"
     )
     api_config: APIConfig = Field(description="Configuration settings for the API")
 

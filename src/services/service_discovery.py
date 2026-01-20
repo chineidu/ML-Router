@@ -1,16 +1,17 @@
 import asyncio
 import json
 import os
+import random
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Awaitable, Callable
 
 import anyio
 import httpx
 
 from src import create_logger
 from src.schemas.backend_registry import ServiceInstance
-from src.schemas.types import ModelTypeEnum, StatusEnum
+from src.schemas.types import LoadBalancerStrategyEnum, ModelTypeEnum, StatusEnum
 from src.services.docker_service_discovery import DockerServiceDiscovery
 
 logger = create_logger(name=__name__)
@@ -288,41 +289,42 @@ class ServiceRegistry:
         return services
 
 
+LoadBalancerStrategyFn = Callable[[ModelTypeEnum], Awaitable[ServiceInstance]]
+
+
 class BackendRegistry:
     """Backend registry using service discovery to discover available ML model backends."""
 
     def __init__(self, service_registry: ServiceRegistry) -> None:
         self.service_registry = service_registry
+        self._lock = asyncio.Lock()
         # Creates: {ModelTypeEnum.SENTIMENT: 0, ModelTypeEnum.CLASSIFICATION: 0, ...}
         self.current_idx: dict[ModelTypeEnum, int] = dict.fromkeys(ModelTypeEnum, 0)
+        self.load_strategy_map = {
+            LoadBalancerStrategyEnum.ROUND_ROBIN: self._around_robin_strategy,
+            LoadBalancerStrategyEnum.LEAST_CONNECTIONS: self._aleast_connections_strategy,
+            LoadBalancerStrategyEnum.WEIGHTED: self._aweighted_strategy,
+        }
+        self.prediction_suffix = {
+            ModelTypeEnum.SENTIMENT: "predict",
+            ModelTypeEnum.CLASSIFICATION: "classify",
+            ModelTypeEnum.REGRESSION: "predict",
+            ModelTypeEnum.NER: "extract-ner",
+        }
         logger.info("Backend registry initialized.")
 
-    async def aget_endpoint(self, model_type: ModelTypeEnum | str) -> str | None:
+    async def aget_endpoint(
+        self, model_type: ModelTypeEnum | str, strategy: LoadBalancerStrategyEnum
+    ) -> str | None:
         """Get the endpoint URL of an available backend for the given model type."""
         model_type = (
             model_type
             if isinstance(model_type, ModelTypeEnum)
             else ModelTypeEnum(model_type)
         )
-        service_name = model_type.value
-        healthy_instances = await self.service_registry.aget_healthy_instances(
-            service_name
-        )
+        instance = await self.aselect_load_balancer(model_type, strategy)
 
-        if not healthy_instances:
-            logger.warning(
-                f"No healthy instances found for model type: {model_type.value}"
-            )
-            return None
-
-        # Simple round-robin load balancing
-        idx = self.current_idx[model_type]
-        instance = healthy_instances[idx % len(healthy_instances)]
-
-        # Update index for next request. Using modulo to wrap around. i.e. if len=3,
-        # and idx was 0, the next idx is 1, etc. The possible idxs are 0,1,2 (len=3)
-        self.current_idx[model_type] = (idx + 1) % len(healthy_instances)
-        return f"{instance.endpoint_url}/predict"
+        return f"{instance.endpoint_url}/{self.prediction_suffix[model_type]}"
 
     async def aget_all_instances(
         self, model_type: ModelTypeEnum | str
@@ -335,3 +337,92 @@ class BackendRegistry:
         )
         service_name = model_type.value
         return await self.service_registry.aget_healthy_instances(service_name)
+
+    @staticmethod
+    def _check_healthy_instances(
+        model_type: ModelTypeEnum, instances: list[ServiceInstance]
+    ) -> None:
+        """Check if there are healthy instances for the given service name.
+
+        Raises
+        ------
+            RuntimeError
+                If no healthy instances are available.
+        """
+        if not instances:
+            raise RuntimeError(
+                f"No healthy instances available for service: {model_type.value}"
+            )
+
+    async def _around_robin_strategy(
+        self, model_type: ModelTypeEnum
+    ) -> ServiceInstance:
+        """Simple round-robin load balancing strategy."""
+        healthy_instances = await self.service_registry.aget_healthy_instances(
+            model_type.value
+        )
+        self._check_healthy_instances(model_type, healthy_instances)
+
+        idx = self.current_idx[model_type]
+        instance = healthy_instances[idx % len(healthy_instances)]
+        self.current_idx[model_type] = (idx + 1) % len(healthy_instances)
+        return instance
+
+    async def _aleast_connections_strategy(
+        self, model_type: ModelTypeEnum
+    ) -> ServiceInstance:
+        """Least connections load balancing strategy. This selects the instance
+        with the fewest active connections.
+        """
+        healthy_instances = await self.service_registry.aget_healthy_instances(
+            model_type.value
+        )
+        self._check_healthy_instances(model_type, healthy_instances)
+
+        # Find the instance with the least active connections
+        return min(healthy_instances, key=lambda inst: inst.active_connections)
+
+    async def _aweighted_strategy(self, model_type: ModelTypeEnum) -> ServiceInstance:
+        """Weighted load balancing strategy. This selects an instance based on
+        its weight.
+        """
+        healthy_instances = await self.service_registry.aget_healthy_instances(
+            model_type.value
+        )
+        self._check_healthy_instances(model_type, healthy_instances)
+
+        # Extract the weights
+        weights = [inst.weight for inst in healthy_instances]
+
+        # Randomly select an instance based on weights
+        return random.choices(healthy_instances, weights=weights, k=1)[0]
+
+    async def aselect_load_balancer(
+        self, model_type: ModelTypeEnum, strategy: LoadBalancerStrategyEnum
+    ) -> ServiceInstance:
+        """Select a backend instance using the specified load balancing strategy."""
+        strategy_fn: LoadBalancerStrategyFn | None = self.load_strategy_map.get(
+            strategy
+        )
+        if not strategy_fn:
+            raise ValueError(
+                f"Invalid load balancing strategy: '{strategy}'. "
+                f"Expected one of {list(self.load_strategy_map.keys())}"
+            )
+
+        return await strategy_fn(model_type)
+
+    async def aupdate_active_connection(
+        self, service_id: str, delta: int, persist: bool
+    ) -> None:
+        """Thread-safe update of active connection count for a service instance."""
+
+        async with self._lock:
+            if service_id in self.service_registry.registry:
+                self.service_registry.registry[service_id].active_connections += delta
+                if persist:
+                    await self.service_registry._asave_registry()
+            else:
+                logger.warning(
+                    f"Service ID {service_id} not found in registry for updating active connections."
+                )

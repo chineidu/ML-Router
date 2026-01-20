@@ -38,8 +38,12 @@ async def make_prediction(
     """Route for making predictions"""
 
     start_time: float = time.perf_counter()
+    strategy = app_config.load_balancer_config.strategy
+    logger.debug(
+        f"Received prediction request | model_type='{model_type}' | strategy={strategy}"
+    )
 
-    backend_url = await backend_registry.aget_endpoint(model_type)
+    backend_url = await backend_registry.aget_endpoint(model_type, strategy=strategy)
     if not backend_url:
         raise HTTPError(
             details=f"No healthy backend available for model type '{model_type}'.",

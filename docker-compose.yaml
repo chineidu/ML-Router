@@ -233,6 +233,31 @@ services:
       interval: 15s
       timeout: 3s
       retries: 5
+  ner_model_2:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: >
+      python -m src.mock.app
+      --model ner --port 8005 --latency 1050
+    ports:
+      - "8006:8005"
+    env_file:
+      - .env
+    volumes:
+      - ./src:/app/src:ro
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python3",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8005/health')",
+        ]
+      interval: 15s
+      timeout: 3s
+      retries: 5
 
 # Named volumes ONLY!
 # Persist data outside the lifecycle of the container.

@@ -8,6 +8,7 @@ import httpx
 from fastapi import FastAPI
 
 from src import create_logger
+from src.api.core.cache import setup_cache
 from src.api.core.ratelimit import limiter
 from src.config import app_config, app_settings
 from src.services.service_discovery import BackendRegistry, ServiceRegistry
@@ -73,6 +74,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:  # noqa: ARG001
         )
 
         logger.info("✅ Shared HTTP client initialized.")
+
+        # ---------- Setup cache ----------
+        app.state.cache = setup_cache()
+        logger.info("✅ Cache initialized")
 
         # ---------- Setup rate limiter ----------
         app.state.limiter = limiter

@@ -43,6 +43,19 @@ class ServiceInstance:
             "description": "Current status of the service instance (e.g., healthy, unhealthy)."
         },
     )
+    weight: int = field(
+        default=1,
+        metadata={
+            "description": "Weight for load balancing among service instances. "
+            "Higher weight means more traffic."
+        },
+    )
+    # Runtime state (not part of initialization)
+    active_connections: int = field(
+        default=0,
+        init=False,
+        metadata={"description": "Number of in-flight requests."},
+    )
 
     def __post_init__(self) -> None:
         """Post-initialization to ensure enums are correctly set."""
