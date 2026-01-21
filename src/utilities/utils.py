@@ -1,7 +1,10 @@
 import msgspec
 
-ENCODER = msgspec.json.Encoder()
-DECODER = msgspec.json.Decoder()
+# JSON encoder
+msgspec_encoder = msgspec.json.Encoder()
+
+# JSON decoder
+msgspec_decoder = msgspec.json.Decoder()
 
 
 def calculate_latency(

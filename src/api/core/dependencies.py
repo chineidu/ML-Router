@@ -30,7 +30,7 @@ def request_id_header_doc(
         default=None,
         alias="X-Request-ID",
         description="Optional request ID. If provided, it will be reused; otherwise generated.",
-        example="my-trace-001",
+        examples=["my-trace-001"],
     ),
 ) -> None:
     """
@@ -50,7 +50,7 @@ def idempotency_key_header(
         default=None,
         alias="Idempotency-Key",
         description="Optional idempotency key to prevent duplicate processing of requests.",
-        example="my-idempotency-key",
+        examples=["my-idempotency-key"],
     ),
 ) -> str | None:
     """Dependency to extract the Idempotency-Key header from requests."""

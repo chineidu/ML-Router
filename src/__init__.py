@@ -71,7 +71,7 @@ from pathlib import Path
 from queue import Queue
 from typing import Optional
 
-from pythonjsonlogger import jsonlogger
+from pythonjsonlogger import json as jsonlogger
 
 ROOT = Path(__file__).parent.parent.absolute()
 

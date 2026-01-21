@@ -1,0 +1,37 @@
+name: CI
+
+on:
+    push:
+        branches: ["main", "dev"]
+    pull_request:
+        branches: ["main", "dev"]
+
+jobs:
+    lint-and-test:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+
+            - name: Set up Python
+              uses: actions/setup-python@v4
+              with:
+                  python-version: "3.13"
+
+            - name: Install build tooling
+              run: |
+                  python -m pip install --upgrade pip
+                  pip install uv
+
+            - name: Install dependencies
+              run: make install
+
+            - name: Run linter, tests and type checks
+              run: make lint-format-all
+
+            - name: Upload coverage HTML (if generated)
+              if: always()
+              uses: actions/upload-artifact@v4
+              with:
+                  name: htmlcov
+                  path: htmlcov

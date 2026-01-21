@@ -8,10 +8,30 @@ import asyncio
 import random
 from typing import Any
 
+import msgspec
 from fastapi import FastAPI, HTTPException, status
+from fastapi.responses import JSONResponse
 from pydantic import Field
 
 from src.schemas.base import BaseSchema, Float
+
+
+class MsgSpecJSONResponse(JSONResponse):
+    def render(self, content: Any) -> bytes:
+        """Render the content to JSON bytes using msgspec.
+
+        Parameters
+        ----------
+        content : Any
+            The content to be rendered as JSON.
+
+        Returns
+        -------
+        bytes
+            The JSON-encoded bytes of the content.
+        """
+        assert content is not None, "Content to render cannot be None"
+        return msgspec.json.encode(content)
 
 
 class PredictionRequestSchema(BaseSchema):
@@ -167,7 +187,9 @@ MODEL_CLASSES = {
 def create_backend_app(model_type: str, latency_ms: int) -> FastAPI:
     """Factory function to create backend apps"""
 
-    app = FastAPI(title=f"Mock '{model_type}' Backend")
+    app = FastAPI(
+        title=f"Mock '{model_type}' Backend", default_response_class=MsgSpecJSONResponse
+    )
 
     # Initialize appropriate model
     if model_type == "sentiment":
