@@ -101,7 +101,7 @@ services:
       dockerfile: Dockerfile
     command: >
       python -m src.mock.app
-      --model sentiment --port 8001 --latency 500
+      --model sentiment --port 8001 --latency 120
     ports:
       - "8001:8001"
     env_file:
@@ -131,7 +131,7 @@ services:
       dockerfile: Dockerfile
     command: >
       python -m src.mock.app
-      --model regression --port 8002 --latency 88
+      --model regression --port 8002 --latency 50
     ports:
       - "8002:8002"
     env_file:
@@ -159,7 +159,7 @@ services:
       dockerfile: Dockerfile
     command: >
       python -m src.mock.app
-      --model classification --port 8003 --latency 120
+      --model classification --port 8003 --latency 45
     ports:
       - "8003:8003"
     env_file:
@@ -185,7 +185,7 @@ services:
       dockerfile: Dockerfile
     command: >
       python -m src.mock.app
-      --model classification --port 8003 --latency 150
+      --model classification --port 8003 --latency 45
     ports:
       - "8004:8003" # Map host port 8004 to container port 8003
     env_file:
@@ -214,7 +214,7 @@ services:
       # We map container port 8005 to host port 8005.
     command: >
       python -m src.mock.app
-      --model ner --port 8005 --latency 1050
+      --model ner --port 8005 --latency 300
     ports:
       - "8005:8005" # Map host port 8005 to container port 8005
     env_file:
@@ -239,7 +239,7 @@ services:
       dockerfile: Dockerfile
     command: >
       python -m src.mock.app
-      --model ner --port 8005 --latency 1050
+      --model ner --port 8005 --latency 300
     ports:
       - "8006:8005"
     env_file:

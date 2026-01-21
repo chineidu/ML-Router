@@ -6,6 +6,22 @@ from src.schemas.types import ProtocolEnum, StatusEnum
 
 
 @dataclass(slots=True, kw_only=True)
+class RuntimeMetrics:
+    """Holds runtime metrics for a service instance."""
+
+    latency_ms: float | None = field(
+        default=None, metadata={"description": "Average latency in milliseconds."}
+    )
+    active_connections: int = field(
+        default=0, metadata={"description": "Number of in-flight requests."}
+    )
+    weight: int = field(
+        default=1,
+        metadata={"description": "Weight for load balancing among service instances. "},
+    )
+
+
+@dataclass(slots=True, kw_only=True)
 class ServiceInstance:
     """Represents a backend service instance."""
 
@@ -43,18 +59,14 @@ class ServiceInstance:
             "description": "Current status of the service instance (e.g., healthy, unhealthy)."
         },
     )
-    weight: int = field(
-        default=1,
-        metadata={
-            "description": "Weight for load balancing among service instances. "
-            "Higher weight means more traffic."
-        },
-    )
     # Runtime state (not part of initialization)
     active_connections: int = field(
         default=0,
         init=False,
         metadata={"description": "Number of in-flight requests."},
+    )
+    runtime_metrics: RuntimeMetrics = field(
+        default_factory=RuntimeMetrics, metadata={"description": "Runtime metrics"}
     )
 
     def __post_init__(self) -> None:
@@ -64,9 +76,17 @@ class ServiceInstance:
         if isinstance(self.status, str):
             self.status = StatusEnum(self.status)
 
-    def model_dump(self) -> dict[str, Any]:
+    def model_dump(self, persist: bool = False) -> dict[str, Any]:
         """Converts the ServiceInstance to a dictionary."""
-        return asdict(self)
+        data = asdict(self)
+
+        if persist:
+            # Strip runtime-only fields for persistence
+            data.pop("status", None)
+            data.pop("last_heartbeat", None)
+            data.pop("runtime_metrics", None)
+
+        return data
 
     @property
     def endpoint_url(self) -> str:

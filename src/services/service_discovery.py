@@ -131,7 +131,7 @@ class ServiceRegistry:
         else:
             await self._aload_registry_from_docker()
 
-    async def _asave_registry(self) -> None:
+    async def asave_registry(self) -> None:
         """Saves the service registry to disk."""
         if not self.registry_save_path:
             logger.warning("Registry save path is not set. Cannot save registry.")
@@ -156,7 +156,7 @@ class ServiceRegistry:
             )
 
         self.registry[instance.service_id] = instance
-        await self._asave_registry()
+        await self.asave_registry()
         logger.info(
             f"Registered service: '{instance.service_name}' [{instance.service_id}] "
             f"at {instance.endpoint_url}"
@@ -180,7 +180,7 @@ class ServiceRegistry:
             if service_id in self.registry:
                 # Remove the service from the registry
                 instance = self.registry.pop(service_id)
-                await self._asave_registry()
+                await self.asave_registry()
                 logger.info(
                     f"Deregistered service: '{instance.service_name}' [{service_id}]"
                 )
@@ -259,7 +259,7 @@ class ServiceRegistry:
             await asyncio.gather(*tasks)
 
         # Save updated statuses
-        await self._asave_registry()
+        await self.asave_registry()
 
     async def aheartbeat(self, service_id: str) -> bool:
         """Update the heartbeat timestamp for a service instance."""
@@ -270,7 +270,7 @@ class ServiceRegistry:
         instance = self.registry[service_id]
         instance.last_heartbeat = time.time()
         instance.status = StatusEnum.HEALTHY
-        await self._asave_registry()
+        await self.asave_registry()
         logger.info(
             f"Heartbeat updated for service '{instance.service_name}' [{service_id}]"
         )
@@ -287,6 +287,48 @@ class ServiceRegistry:
                 # Add instance to the list
             services[instance.service_name].append(instance)
         return services
+
+    @staticmethod
+    def compute_dynamic_weight(
+        instance: ServiceInstance,
+        max_conn: int = 100,
+    ) -> int:
+        """
+        Compute a dynamic weight (1-100) using penalty-based scoring.
+
+        Philosophy:
+        - Start from base_weight (default 100)
+        - Apply penalties for load and latency
+        - Stable, predictable, debuggable
+        """
+
+        if instance.status == StatusEnum.UNHEALTHY:
+            return 0
+
+        # Base weight (acts as a ceiling)
+        base = int(instance.metadata.get("base_weight", 100))
+        base = max(10, min(100, base))
+
+        weight = base
+
+        # ---------------- Load penalty ----------------
+        load_ratio = instance.active_connections / max_conn
+        load_penalty = int(load_ratio * 40)  # up to -40
+        weight -= load_penalty
+
+        # ---------------- Latency penalty ----------------
+        latency_ms = float(instance.metadata.get("latency_ms", 200))
+
+        if latency_ms > 200:
+            latency_penalty = min(40, int((latency_ms - 200) / 20))
+            weight -= latency_penalty
+
+        # ---------------- Capacity bonus ----------------
+        capacity = float(instance.metadata.get("capacity", 10))
+        capacity_bonus = min(10, int(capacity / 10))
+        weight += capacity_bonus
+
+        return max(1, min(100, weight))
 
 
 LoadBalancerStrategyFn = Callable[[ModelTypeEnum], Awaitable[ServiceInstance]]
@@ -313,9 +355,9 @@ class BackendRegistry:
         }
         logger.info("Backend registry initialized.")
 
-    async def aget_endpoint(
+    async def aselect_backend_endpoint(
         self, model_type: ModelTypeEnum | str, strategy: LoadBalancerStrategyEnum
-    ) -> str | None:
+    ) -> tuple[str | None, ServiceInstance | None]:
         """Get the endpoint URL of an available backend for the given model type."""
         model_type = (
             model_type
@@ -324,7 +366,10 @@ class BackendRegistry:
         )
         instance = await self.aselect_load_balancer(model_type, strategy)
 
-        return f"{instance.endpoint_url}/{self.prediction_suffix[model_type]}"
+        return (
+            f"{instance.endpoint_url}/{self.prediction_suffix[model_type]}",
+            instance,
+        )
 
     async def aget_all_instances(
         self, model_type: ModelTypeEnum | str
@@ -379,8 +424,14 @@ class BackendRegistry:
         )
         self._check_healthy_instances(model_type, healthy_instances)
 
-        # Find the instance with the least active connections
-        return min(healthy_instances, key=lambda inst: inst.active_connections)
+        # Find the instance with the least active connections (and lowest latency as tiebreaker)
+        return min(
+            healthy_instances,
+            key=lambda inst: (
+                inst.active_connections,
+                float(inst.metadata.get("latency_ms", 200)),
+            ),
+        )
 
     async def _aweighted_strategy(self, model_type: ModelTypeEnum) -> ServiceInstance:
         """Weighted load balancing strategy. This selects an instance based on
@@ -392,7 +443,16 @@ class BackendRegistry:
         self._check_healthy_instances(model_type, healthy_instances)
 
         # Extract the weights
-        weights = [inst.weight for inst in healthy_instances]
+        weights = [inst.runtime_metrics.weight for inst in healthy_instances]
+        # Update weights based on current state
+        for inst in healthy_instances:
+            inst.runtime_metrics.weight = self.service_registry.compute_dynamic_weight(
+                inst
+            )
+
+        # Handle case where all weights are zero
+        if sum(weights) == 0:
+            return random.choice(healthy_instances)
 
         # Randomly select an instance based on weights
         return random.choices(healthy_instances, weights=weights, k=1)[0]
@@ -421,7 +481,7 @@ class BackendRegistry:
             if service_id in self.service_registry.registry:
                 self.service_registry.registry[service_id].active_connections += delta
                 if persist:
-                    await self.service_registry._asave_registry()
+                    await self.service_registry.asave_registry()
             else:
                 logger.warning(
                     f"Service ID {service_id} not found in registry for updating active connections."

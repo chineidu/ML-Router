@@ -5,7 +5,6 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 from uuid import uuid4
 
-import msgspec
 from fastapi import Request, Response, status
 from starlette.middleware.base import BaseHTTPMiddleware
 
@@ -17,6 +16,7 @@ from src.api.core.exceptions import (
 )
 from src.api.core.responses import MsgSpecJSONResponse
 from src.schemas.types import ErrorCodeEnum
+from src.utilities.utils import ENCODER
 
 logger = create_logger(name=__name__)
 
@@ -70,7 +70,7 @@ class LoggingMiddleware(BaseHTTPMiddleware):
         }
 
         # Use msgspec for optimized serialization
-        logger.info(msgspec.json.encode(log).decode("utf-8"))
+        logger.info(ENCODER.encode(log).decode("utf-8"))
 
         return response
 
