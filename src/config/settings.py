@@ -107,7 +107,6 @@ class DevelopmentConfig(BaseConfig):
     ENV: EnvironmentEnum = EnvironmentEnum.DEVELOPMENT
     PROTOCOL: ProtocolEnum = ProtocolEnum.HTTP
     WORKERS: int = 1
-    LIMIT_VALUE: int = 20
     RELOAD: bool = True
     DEBUG: bool = True
 
@@ -126,7 +125,6 @@ class SandboxConfig(BaseConfig):
     ENV: EnvironmentEnum = EnvironmentEnum.SANDBOX
     PROTOCOL: ProtocolEnum = ProtocolEnum.HTTPS
     WORKERS: int = 1
-    LIMIT_VALUE: int = 30
     RELOAD: bool = False
     DEBUG: bool = False
 
@@ -145,7 +143,6 @@ class ProductionConfig(BaseConfig):
     ENV: EnvironmentEnum = EnvironmentEnum.PRODUCTION
     PROTOCOL: ProtocolEnum = ProtocolEnum.HTTPS
     WORKERS: int = 2
-    LIMIT_VALUE: int = 60
     RELOAD: bool = False
     DEBUG: bool = False
 

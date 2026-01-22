@@ -4,7 +4,7 @@ config:
     connect_timeout_seconds: 5
     read_timeout_seconds: 3
     max_connections: 100
-    max_keepalive_connections: 20
+    max_keepalive_connections: 50
 
   registry_config:
     registry_file: "data/service_registry.json"
@@ -39,5 +39,5 @@ config:
           - "*"
     ratelimit:
       default_rate: 50
-      burst_rate: 100
+      burst_rate: 10000
       login_rate: 10

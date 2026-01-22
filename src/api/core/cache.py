@@ -15,6 +15,7 @@ from fastapi.encoders import jsonable_encoder
 
 from src import create_logger
 from src.config import app_settings
+from src.utilities.utils import msgspec_encoder, sort_dict
 
 logger = create_logger(name=__name__)
 type CacheDecorator = Callable[..., Callable[..., Coroutine[Any, Any, Any]]]
@@ -60,7 +61,7 @@ def setup_cache() -> Cache:
 
 
 def cached(
-    ttl: int = 300, key_prefix: str = ""
+    ttl: int = 300, key_prefix: str = "", payload_key: str | None = None
 ) -> Callable[[CacheDecorator], CacheDecorator]:
     """
     Decorator for caching endpoint responses.
@@ -69,10 +70,11 @@ def cached(
     ----------
         ttl: Time to live in seconds (default 5 minutes)
         key_prefix: Prefix for cache key (useful for namespacing)
+        payload_key: Optional key in request body to include in cache key generation
 
     Usage
     -----
-        @cached(ttl=60, key_prefix="products")
+        @cached(ttl=60, key_prefix="products", payload_key="input_data")
         async def get_products():
             ...
     """
@@ -83,16 +85,30 @@ def cached(
             # Extract request and cache from kwargs
             request: Request | None = kwargs.get("request")
             cache: Cache | None = kwargs.get("cache")
+            payload_dict: dict[str, Any] = {}
 
             if not cache:
                 # If no cache available, just call the function
                 return await func(*args, **kwargs)  # type: ignore
 
+            # Extract payload for cache key if specified
+            if payload_key and payload_key in kwargs:
+                payload = kwargs.get(payload_key)
+
+                # Handle Pydantic models or dataclasses
+                if hasattr(payload, "model_dump"):
+                    payload_dict = payload.model_dump()
+                elif hasattr(payload, "dict"):
+                    payload_dict = payload.dict()
+
             # Generate cache key from endpoint path and query params
             if request is None:
                 raise ValueError("Request object is required for caching")
             cache_key: str = _generate_cache_key(
-                request.url.path, dict(request.query_params), key_prefix
+                request.url.path,
+                dict(request.query_params),
+                key_prefix,
+                payload=payload_dict if payload_dict else None,
             )
 
             # Try to get from cache
@@ -128,7 +144,12 @@ def cached(
     return decorator
 
 
-def _generate_cache_key(path: str, params: dict[str, Any], prefix: str = "") -> str:
+def _generate_cache_key(
+    path: str,
+    params: dict[str, Any],
+    prefix: str = "",
+    payload: dict[str, Any] | None = None,
+) -> str:
     """Generate a unique cache key from path and parameters.
 
     This function creates a stable, short, and unique string (an MD5 hash)
@@ -144,6 +165,8 @@ def _generate_cache_key(path: str, params: dict[str, Any], prefix: str = "") -> 
     prefix : str, optional
         An **optional string prefix** to prepend to the generated hash, useful
         for namespacing keys (e.g., 'user_cache'), by default "".
+    payload : dict[str, Any] | None, optional
+        An **optional payload** to include in the cache key generation, by default None.
 
     Returns
     -------
@@ -152,8 +175,12 @@ def _generate_cache_key(path: str, params: dict[str, Any], prefix: str = "") -> 
         or a prefixed MD5 hash (e.g., 'user_cache:abcdef1234567890').
     """
     # Create a deterministic string from params
-    params_str: str = json.dumps(params, sort_keys=True)
+    params_str: str = msgspec_encoder.encode(sort_dict(params)).decode()
     key_content: str = f"{path}:{params_str}"
+
+    if payload:
+        serialized_payload = msgspec_encoder.encode(sort_dict(payload)).decode()
+        key_content += f":{serialized_payload}"
 
     # Hash for shorter keys
     key_hash: str = hashlib.md5(key_content.encode()).hexdigest()

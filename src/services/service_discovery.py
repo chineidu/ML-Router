@@ -46,7 +46,11 @@ class ServiceRegistry:
         self.registry: dict[str, ServiceInstance] = {}
         self.health_check_interval = health_check_interval  # seconds
         self.registry_save_path: Path | None = None
+        self._healthy_cache: dict[str, tuple[float, list[ServiceInstance]]] = {}
+        self._healthy_cache_ttl: float = 2  # seconds
         self._lock = asyncio.Lock()
+        self._save_task: asyncio.Task | None = None
+        self._save_lock = asyncio.Lock()
 
     async def ainitialize(self) -> None:
         """Initialize the registry by loading from disk and performing an initial health check."""
@@ -131,7 +135,7 @@ class ServiceRegistry:
         else:
             await self._aload_registry_from_docker()
 
-    async def asave_registry(self) -> None:
+    async def _asave_registry(self) -> None:
         """Saves the service registry to disk."""
         if not self.registry_save_path:
             logger.warning("Registry save path is not set. Cannot save registry.")
@@ -148,6 +152,34 @@ class ServiceRegistry:
                 f"Registry updates will not persist."
             )
 
+    async def asave_registry_debounced(self, delay: float = 5.0) -> None:
+        """Schedules a background save of the registry with write coalescing.
+
+        This method ensures that frequent updates are batched (coalesced) into a
+        single disk write. If a save operation is already running or scheduled,
+        this call marks the registry as 'dirty' without scheduling a new task,
+        ensuring thread safety and reducing I/O operations.
+        """
+        self._pending_save: bool = True
+
+        #  If a save task is already scheduled and not done, skip scheduling another
+        if self._save_task and not self._save_task.done():
+            return
+
+        async def _delayed_save() -> None:
+            # Wait for debounce delay
+            await asyncio.sleep(delay)
+            # If a save is still pending after the delay, perform the save
+            if self._pending_save:
+                # Ensure only one save happens at a time
+                async with self._save_lock:
+                    await self._asave_registry()
+                    # Reset pending flag
+                    self._pending_save = False
+
+        # Schedule the delayed save as a background task
+        self._save_task = asyncio.create_task(_delayed_save())
+
     async def aregister(self, instance: ServiceInstance) -> bool:
         """Register a new service instance."""
         if not self.registry:
@@ -156,7 +188,7 @@ class ServiceRegistry:
             )
 
         self.registry[instance.service_id] = instance
-        await self.asave_registry()
+        await self._asave_registry()
         logger.info(
             f"Registered service: '{instance.service_name}' [{instance.service_id}] "
             f"at {instance.endpoint_url}"
@@ -180,7 +212,7 @@ class ServiceRegistry:
             if service_id in self.registry:
                 # Remove the service from the registry
                 instance = self.registry.pop(service_id)
-                await self.asave_registry()
+                await self._asave_registry()
                 logger.info(
                     f"Deregistered service: '{instance.service_name}' [{service_id}]"
                 )
@@ -197,15 +229,32 @@ class ServiceRegistry:
                 await self.aderegister(service_id)
         return True
 
-    async def aget_healthy_instances(self, service_name: str) -> list[ServiceInstance]:
-        """Get all healthy service instances."""
-        return [
+    def get_healthy_instances_cached(self, service_name: str) -> list[ServiceInstance]:
+        """Get all healthy service instances with TTL caching."""
+        # Check cache first
+        cached_instances = self._healthy_cache.get(service_name)
+        if cached_instances:
+            cache_time, instances = cached_instances
+            # Check TTL
+            if time.time() - cache_time < self._healthy_cache_ttl:
+                return instances
+
+        # Else: Compute fresh list (Cache miss/stale data avoidance)
+        instances = [
             inst
             for inst in self.registry.values()
             if inst.service_name == service_name
             and inst.status == StatusEnum.HEALTHY
             and not inst.is_stale
         ]
+        self._healthy_cache[service_name] = (time.time(), instances)
+        return instances
+
+    async def aget_healthy_instances_cached(
+        self, service_name: str
+    ) -> list[ServiceInstance]:
+        """Async wrapper to get all healthy service instances with TTL caching."""
+        return await asyncio.to_thread(self.get_healthy_instances_cached, service_name)
 
     async def ahealth_check_loop(self) -> None:
         """Periodically check the health of registered services."""
@@ -259,7 +308,7 @@ class ServiceRegistry:
             await asyncio.gather(*tasks)
 
         # Save updated statuses
-        await self.asave_registry()
+        await self._asave_registry()
 
     async def aheartbeat(self, service_id: str) -> bool:
         """Update the heartbeat timestamp for a service instance."""
@@ -270,7 +319,7 @@ class ServiceRegistry:
         instance = self.registry[service_id]
         instance.last_heartbeat = time.time()
         instance.status = StatusEnum.HEALTHY
-        await self.asave_registry()
+        await self._asave_registry()
         logger.info(
             f"Heartbeat updated for service '{instance.service_name}' [{service_id}]"
         )
@@ -374,14 +423,19 @@ class BackendRegistry:
     async def aget_all_instances(
         self, model_type: ModelTypeEnum | str
     ) -> list[ServiceInstance]:
-        """Get all healthy backend instances for the given model type."""
+        """Get all healthy backend instances for the given model type.
+
+        Note
+        ----
+        It uses cached version for performance.
+        """
         model_type = (
             model_type
             if isinstance(model_type, ModelTypeEnum)
             else ModelTypeEnum(model_type)
         )
         service_name = model_type.value
-        return await self.service_registry.aget_healthy_instances(service_name)
+        return await self.service_registry.aget_healthy_instances_cached(service_name)
 
     @staticmethod
     def _check_healthy_instances(
@@ -402,8 +456,13 @@ class BackendRegistry:
     async def _around_robin_strategy(
         self, model_type: ModelTypeEnum
     ) -> ServiceInstance:
-        """Simple round-robin load balancing strategy."""
-        healthy_instances = await self.service_registry.aget_healthy_instances(
+        """Simple round-robin load balancing strategy.
+
+        Note
+        ----
+        It uses cached version for performance.
+        """
+        healthy_instances = await self.service_registry.aget_healthy_instances_cached(
             model_type.value
         )
         self._check_healthy_instances(model_type, healthy_instances)
@@ -418,8 +477,12 @@ class BackendRegistry:
     ) -> ServiceInstance:
         """Least connections load balancing strategy. This selects the instance
         with the fewest active connections.
+
+        Note
+        ----
+        It uses cached version for performance.
         """
-        healthy_instances = await self.service_registry.aget_healthy_instances(
+        healthy_instances = await self.service_registry.aget_healthy_instances_cached(
             model_type.value
         )
         self._check_healthy_instances(model_type, healthy_instances)
@@ -436,8 +499,12 @@ class BackendRegistry:
     async def _aweighted_strategy(self, model_type: ModelTypeEnum) -> ServiceInstance:
         """Weighted load balancing strategy. This selects an instance based on
         its weight.
+
+        Note
+        ----
+        It uses cached version for performance.
         """
-        healthy_instances = await self.service_registry.aget_healthy_instances(
+        healthy_instances = await self.service_registry.aget_healthy_instances_cached(
             model_type.value
         )
         self._check_healthy_instances(model_type, healthy_instances)
@@ -460,7 +527,24 @@ class BackendRegistry:
     async def aselect_load_balancer(
         self, model_type: ModelTypeEnum, strategy: LoadBalancerStrategyEnum
     ) -> ServiceInstance:
-        """Select a backend instance using the specified load balancing strategy."""
+        """Select a backend instance using the specified load balancing strategy.
+
+        Parameters
+        ----------
+        model_type : ModelTypeEnum
+            The type of model/service to select.
+        strategy : LoadBalancerStrategyEnum
+            The load balancing strategy to use.
+
+        Returns
+        -------
+        ServiceInstance
+            The selected service instance.
+
+        Note
+        ----
+        It uses cached version for performance.
+        """
         strategy_fn: LoadBalancerStrategyFn | None = self.load_strategy_map.get(
             strategy
         )
@@ -481,7 +565,7 @@ class BackendRegistry:
             if service_id in self.service_registry.registry:
                 self.service_registry.registry[service_id].active_connections += delta
                 if persist:
-                    await self.service_registry.asave_registry()
+                    await self.service_registry._asave_registry()
             else:
                 logger.warning(
                     f"Service ID {service_id} not found in registry for updating active connections."

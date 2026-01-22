@@ -14,6 +14,7 @@ from slowapi.errors import RateLimitExceeded
 from src import create_logger
 from src.api.core.exceptions import BaseAPIError, api_error_handler
 from src.api.core.lifespan import lifespan
+from src.api.core.metrics import model_label
 from src.api.core.middleware import MIDDLEWARE_STACK
 from src.api.routes import health, predict, services
 
@@ -89,6 +90,7 @@ def create_application() -> FastAPI:
         should_instrument_requests_inprogress=True,
         excluded_handlers=["/metrics", "/health", "/docs", "/redoc", "/openapi.json"],
     )
+    instrumentator.add(model_label)
     instrumentator.instrument(app).expose(app)
 
     return app
