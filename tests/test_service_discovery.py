@@ -218,6 +218,7 @@ class TestBackendRegistry:
             instance.runtime_metrics.weight = 100 - i * 10
 
         registry.aget_healthy_instances = AsyncMock(return_value=instances)
+        registry.aget_healthy_instances_cached = AsyncMock(return_value=instances)
         registry.compute_dynamic_weight = MagicMock(return_value=50)
         return registry
 
@@ -294,6 +295,7 @@ class TestBackendRegistry:
     ) -> None:
         """Test round-robin strategy when no healthy instances available."""
         service_registry_mock.aget_healthy_instances = AsyncMock(return_value=[])
+        service_registry_mock.aget_healthy_instances_cached = AsyncMock(return_value=[])
         with pytest.raises(RuntimeError, match="No healthy instances available"):
             await backend_registry._around_robin_strategy(ModelTypeEnum.SENTIMENT)
 
