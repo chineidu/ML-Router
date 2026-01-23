@@ -59,14 +59,15 @@ class ServiceInstance:
             "description": "Current status of the service instance (e.g., healthy, unhealthy)."
         },
     )
-    # Runtime state (not part of initialization)
-    active_connections: int = field(
-        default=0,
-        init=False,
-        metadata={"description": "Number of in-flight requests."},
-    )
     runtime_metrics: RuntimeMetrics = field(
-        default_factory=RuntimeMetrics, metadata={"description": "Runtime metrics"}
+        default_factory=RuntimeMetrics,
+        init=False,
+        metadata={"description": "Runtime metrics"},
+    )
+    circuit_breaker: Any = field(
+        default=None,
+        init=False,
+        metadata={"description": "Circuit breaker for the service instance."},
     )
 
     def __post_init__(self) -> None:
@@ -76,7 +77,7 @@ class ServiceInstance:
         if isinstance(self.status, str):
             self.status = StatusEnum(self.status)
 
-    def model_dump(self, persist: bool = False) -> dict[str, Any]:
+    def model_dump(self, persist: bool = True) -> dict[str, Any]:
         """Converts the ServiceInstance to a dictionary."""
         data = asdict(self)
 
@@ -85,6 +86,7 @@ class ServiceInstance:
             data.pop("status", None)
             data.pop("last_heartbeat", None)
             data.pop("runtime_metrics", None)
+            data.pop("circuit_breaker", None)
 
         return data
 

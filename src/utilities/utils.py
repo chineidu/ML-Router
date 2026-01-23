@@ -1,6 +1,5 @@
 import asyncio
 import hashlib
-import time
 from typing import TYPE_CHECKING, Any
 
 import httpx
@@ -14,6 +13,7 @@ from tenacity import (
 
 from src import create_logger
 from src.schemas.types import CircuitBreakerStateEnum
+from src.utilities.circuit_breaker import CircuitBreaker, CircuitOpenError
 
 if TYPE_CHECKING:
     from src.schemas.backend_registry import ServiceInstance
@@ -79,72 +79,18 @@ def calculate_latency_ewma(
     return round(new_latency, 2)
 
 
-class CircuitBreaker:
-    def __init__(self, failure_threshold: int = 3, recovery_timeout: int = 60) -> None:
-        self.failure_threshold = failure_threshold
-        self.recovery_timeout = recovery_timeout
-        self.failure_count = 0
-        self.state: CircuitBreakerStateEnum = CircuitBreakerStateEnum.CLOSED
-        self.last_failure_time: float | None = None
-        logger.info(
-            f"Circuit Breaker initialized with failure_threshold={self.failure_threshold}, "
-            f"recovery_timeout={self.recovery_timeout} seconds."
-        )
-
-    def record_failure(self) -> None:
-        """Record a failure, update the circuit breaker state and last failure time"""
-        self.failure_count += 1
-        self.last_failure_time = time.time()
-        if self.failure_count >= self.failure_threshold:
-            self.state = CircuitBreakerStateEnum.OPEN
-            logger.error(
-                f"🔴 Circuit Breaker tripped ({CircuitBreakerStateEnum.OPEN.name}). Not accepting requests."
-            )
-
-    def record_success(self) -> None:
-        """Record a success and reset the circuit breaker if in HALF_OPEN state"""
-        if self.state == CircuitBreakerStateEnum.HALF_OPEN:
-            logger.info(
-                f"🟢 Circuit Breaker reset ({CircuitBreakerStateEnum.CLOSED.name}). Accepting requests."
-            )
-
-        # Clear count
-        self.failure_count = 0
-        self.state = CircuitBreakerStateEnum.CLOSED
-        logger.info(
-            f"🟢 Circuit Breaker reset ({CircuitBreakerStateEnum.CLOSED.name}). Accepting requests."
-        )
-
-    def can_execute(self) -> bool:
-        """Check if requests can be executed based on the circuit breaker state"""
-        if self.state == CircuitBreakerStateEnum.CLOSED:
-            return True
-
-        if (
-            self.state == CircuitBreakerStateEnum.OPEN
-            and self.last_failure_time is not None
-            and (time.time() - self.last_failure_time > self.recovery_timeout)
-        ):
-            self.state = CircuitBreakerStateEnum.HALF_OPEN
-            logger.warning(
-                f"🟠 Circuit Breaker is {CircuitBreakerStateEnum.HALF_OPEN.name}. Testing recovery..."
-            )
-            return True
-
-        return self.state == CircuitBreakerStateEnum.CLOSED
-
-
 async def aretriable_request(
     client: httpx.AsyncClient,
     url: str,
     payload: dict[str, Any],
     *,
+    circuit_breaker: CircuitBreaker | None = None,
     max_attempts: int = 3,
     multiplier: float = 0.5,
     min_wait: float = 1,
     max_wait: float = 5,
 ) -> httpx.Response | None:
-    """Make an HTTP POST request with retries on connection-related errors.
+    """Make an HTTP POST request with retries and optional circuit breaker.
 
     Parameters
     ----------
@@ -154,6 +100,8 @@ async def aretriable_request(
         The URL to send the request to.
     payload : dict[str, Any]
         The JSON payload to include in the request body.
+    circuit_breaker : CircuitBreaker | None, optional
+        An optional CircuitBreaker instance to manage request flow.
     max_attempts : int, optional
         Maximum number of retry attempts (default is 3).
     multiplier : float, optional
@@ -177,7 +125,29 @@ async def aretriable_request(
         reraise=True,
     ):
         with attempt:
-            return await client.post(url, json=payload)
+            if circuit_breaker and not circuit_breaker.can_execute():
+                raise CircuitOpenError(
+                    f"Circuit breaker is {CircuitBreakerStateEnum.OPEN.name}. Request blocked."
+                )
+            response = await client.post(url, json=payload)
+
+            # 5xx errors are retriable while 4xx are not
+            if circuit_breaker:
+                # Successful response
+                if 200 <= response.status_code < 300:
+                    circuit_breaker.record_success()
+                # Server error
+                elif 500 <= response.status_code < 600:
+                    circuit_breaker.record_failure()
+                    # Raise for retry
+                    raise httpx.HTTPStatusError(
+                        f"Server error: {response.status_code}",
+                        request=response.request,
+                        response=response,
+                    )
+                else:  # Client error (4xx)
+                    circuit_breaker.record_failure()
+            return response
     return None
 
 

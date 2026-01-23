@@ -26,6 +26,7 @@ if TYPE_CHECKING:
     import httpx
 
     from src.services.service_discovery import BackendRegistry
+    from src.utilities.circuit_breaker import CircuitBreaker
 
 logger = create_logger(name=__name__)
 LIMIT_VALUE: int = app_config.api_config.ratelimit.burst_rate
@@ -84,7 +85,13 @@ async def make_prediction(
             details=f"No healthy backend available for model type '{model_type}'.",
         )
 
+    circuit_breaker: "CircuitBreaker" = instance.circuit_breaker
+
     try:
+        if not circuit_breaker.can_execute:
+            raise HTTPError(details="Uxexpected error")
+
+        # ---------- Continue if circuit is CLOSED/HALF_OPEN
         # Increment counter
         await backend_registry.aupdate_active_connection(
             service_id=instance.service_id, delta=1, persist=False
@@ -102,6 +109,7 @@ async def make_prediction(
             url=backend_url,
             payload=payload,
             # Retry parameters
+            circuit_breaker=circuit_breaker,
             max_attempts=3,
             multiplier=0.5,
             min_wait=1,

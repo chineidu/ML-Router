@@ -13,6 +13,7 @@ from src import create_logger
 from src.schemas.backend_registry import ServiceInstance
 from src.schemas.types import LoadBalancerStrategyEnum, ModelTypeEnum, StatusEnum
 from src.services.docker_service_discovery import DockerServiceDiscovery
+from src.utilities.circuit_breaker import CircuitBreaker
 
 logger = create_logger(name=__name__)
 
@@ -58,10 +59,227 @@ class ServiceRegistry:
         await self._create_registry_dir(
             dir_path=Path(self.REGISTRY_DIR_PATH)
         )  # Ensure directory exists
+        self._init_circuit_breaker()
         # Perform initial health check to mark services as healthy immediately
         await self._acheck_all_health()
         logger.info("Service registry initialized.")
 
+    # ----- Addition Methods -----
+    def _init_circuit_breaker(self) -> None:
+        """Initialize CircuitBreaker instances for all services in the registry."""
+        # Lazy initialization
+        for svc_id, instance in self.registry.items():
+            if not instance.circuit_breaker:
+                instance = self._create_circuit_breaker(svc_id, instance)
+
+    async def aregister(self, instance: ServiceInstance) -> bool:
+        """Register a new service instance."""
+        if not self.registry:
+            raise ValueError(
+                "Service registry not initialized. Call 'ainitialize()' first."
+            )
+
+        instance = self._create_circuit_breaker(instance.service_id, instance)
+        self.registry[instance.service_id] = instance
+        await self._asave_registry()
+        logger.info(
+            f"Registered service: '{instance.service_name}' [{instance.service_id}] "
+            f"at {instance.endpoint_url}"
+        )
+        return True
+
+    async def abatch_register(self, instances: list[ServiceInstance]) -> bool:
+        """Register multiple service instances."""
+        async with self._lock:
+            for instance in instances:
+                await self.aregister(instance)
+
+        return True
+
+    async def asave_registry_debounced(self, delay: float = 5.0) -> None:
+        """Schedules a background save of the registry with write coalescing.
+
+        This method ensures that frequent updates are batched (coalesced) into a
+        single disk write. If a save operation is already running or scheduled,
+        this call marks the registry as 'dirty' without scheduling a new task,
+        ensuring thread safety and reducing I/O operations.
+        """
+        self._pending_save: bool = True
+
+        #  If a save task is already scheduled and not done, skip scheduling another
+        if self._save_task and not self._save_task.done():
+            return
+
+        async def _delayed_save() -> None:
+            # Wait for debounce delay
+            await asyncio.sleep(delay)
+            # If a save is still pending after the delay, perform the save
+            if self._pending_save:
+                # Ensure only one save happens at a time
+                async with self._save_lock:
+                    await self._asave_registry()
+                    # Reset pending flag
+                    self._pending_save = False
+
+        # Schedule the delayed save as a background task
+        self._save_task = asyncio.create_task(_delayed_save())
+
+    @staticmethod
+    def _create_circuit_breaker(
+        service_id: str, instance: ServiceInstance
+    ) -> ServiceInstance:
+        failure_threshold = int(instance.metadata.get("failure_threshold", 3))
+        recovery_timeout = int(instance.metadata.get("recovery_timeout", 30))
+        instance.circuit_breaker = CircuitBreaker(
+            failure_threshold=failure_threshold, recovery_timeout=recovery_timeout
+        )
+        logger.info(
+            f"Initialized CircuitBreaker for service: '{instance.service_name} [{service_id}] "
+            f"(failure_threshold={failure_threshold}, recovery_timeout={recovery_timeout})"
+        )
+        return instance
+
+    # ----- Removal Methods -----
+    async def aderegister(self, service_id: str) -> bool:
+        """Deregister a service instance."""
+        if service_id not in self.registry:
+            return False
+
+        async with self._lock:
+            # Thread-safe removal (prevents race conditions)
+            if service_id in self.registry:
+                # Remove the service from the registry
+                instance = self.registry.pop(service_id)
+                await self._asave_registry()
+                logger.info(
+                    f"Deregistered service: '{instance.service_name}' [{service_id}]"
+                )
+                return True
+            logger.warning(
+                f"Service ID {service_id} not found in registry for deregistration."
+            )
+            return False
+
+    async def abatch_deregister(self, service_ids: list[str]) -> bool:
+        """Deregister multiple service instances."""
+        async with self._lock:
+            for service_id in service_ids:
+                await self.aderegister(service_id)
+        return True
+
+    # ----- Health Methods -----
+    def get_healthy_instances_cached(self, service_name: str) -> list[ServiceInstance]:
+        """Get all healthy service instances with TTL caching."""
+        # Check cache first
+        cached_instances = self._healthy_cache.get(service_name)
+        if cached_instances:
+            cache_time, instances = cached_instances
+            # Check TTL
+            if time.time() - cache_time < self._healthy_cache_ttl:
+                return instances
+
+        # Else: Compute fresh list (Cache miss/stale data avoidance)
+        instances = [
+            inst
+            for inst in self.registry.values()
+            if inst.service_name == service_name
+            and inst.status == StatusEnum.HEALTHY
+            and not inst.is_stale
+        ]
+        self._healthy_cache[service_name] = (time.time(), instances)
+        return instances
+
+    async def aget_healthy_instances_cached(
+        self, service_name: str
+    ) -> list[ServiceInstance]:
+        """Async wrapper to get all healthy service instances with TTL caching."""
+        return await asyncio.to_thread(self.get_healthy_instances_cached, service_name)
+
+    async def ahealth_check_loop(self) -> None:
+        """Periodically check the health of registered services."""
+        while True:
+            await self._acheck_all_health()
+            await asyncio.sleep(self.health_check_interval)
+
+    async def aheartbeat(self, service_id: str) -> bool:
+        """Update the heartbeat timestamp for a service instance."""
+        if service_id not in self.registry:
+            logger.warning(f"Heartbeat received for unknown service ID: {service_id}")
+            return False
+
+        instance = self.registry[service_id]
+        instance.last_heartbeat = time.time()
+        instance.status = StatusEnum.HEALTHY
+        await self._asave_registry()
+        logger.info(
+            f"Heartbeat updated for service '{instance.service_name}' [{service_id}]"
+        )
+        return True
+
+    async def _acheck_single_health(
+        self, aclient: httpx.AsyncClient, service_id: str
+    ) -> None:
+        """Check health of a registered services and update its status."""
+        instance: ServiceInstance = self.registry[service_id]
+        if not instance.circuit_breaker:
+            raise RuntimeError(
+                f"CircuitBreaker not initialized for service '{instance.service_name}' [{service_id}]"
+            )
+        if not instance.circuit_breaker.can_execute():
+            logger.warning(
+                f"Skipping health check for service '{instance.service_name}' [{service_id}] "
+                f"due to OPEN circuit breaker."
+            )
+            instance.status = StatusEnum.UNHEALTHY
+            return
+
+        try:
+            response = await aclient.get(instance.health_check_url)
+            if response.status_code == 200:
+                instance.last_heartbeat = time.time()
+                instance.status = StatusEnum.HEALTHY
+                instance.circuit_breaker.record_success()
+                logger.info(
+                    f"Health check passed for service '{instance.service_name}' [{service_id}]"
+                )
+            else:
+                instance.status = StatusEnum.UNHEALTHY
+                instance.circuit_breaker.record_failure()
+                logger.warning(
+                    f"Health check returned {response.status_code} for service "
+                    f"'{instance.service_name}' [{service_id}]"
+                )
+
+        except Exception as e:
+            logger.warning(
+                f"Health check failed for service '{instance.service_name}' [{service_id}]: {e}"
+            )
+            instance.status = StatusEnum.UNHEALTHY
+            instance.circuit_breaker.record_failure()
+
+        if instance.is_stale:
+            instance.status = StatusEnum.UNHEALTHY
+            logger.warning(
+                f"Removing stale service: '{instance.service_name}' [{service_id}]."
+            )
+
+            await self.aderegister(service_id)
+
+    async def _acheck_all_health(self) -> None:
+        """Check health of all registered services and update their status."""
+        async with httpx.AsyncClient(timeout=5) as aclient:
+            tasks = [
+                self._acheck_single_health(aclient, service_id)
+                for service_id in self.registry.keys()
+            ]
+
+            # Run health checks concurrently
+            await asyncio.gather(*tasks)
+
+        # Save updated statuses
+        await self._asave_registry()
+
+    # ---- Persistence Methods -----
     async def _create_registry_dir(self, dir_path: Path) -> None:
         """Creates the registry directory if it doesn't exist and sets the registry save path."""
         await anyio.Path(dir_path).mkdir(parents=True, exist_ok=True)
@@ -152,178 +370,14 @@ class ServiceRegistry:
                 f"Registry updates will not persist."
             )
 
-    async def asave_registry_debounced(self, delay: float = 5.0) -> None:
-        """Schedules a background save of the registry with write coalescing.
+    # ---- Utility Methods -----
+    def get_circuit_breaker(self, service_id: str) -> CircuitBreaker | None:
+        """Get the CircuitBreaker instance for a given service ID."""
+        if not (instance := self.registry.get(service_id)):
+            logger.warning(f"No CircuitBreaker found for '{service_id}'")
+            return None
 
-        This method ensures that frequent updates are batched (coalesced) into a
-        single disk write. If a save operation is already running or scheduled,
-        this call marks the registry as 'dirty' without scheduling a new task,
-        ensuring thread safety and reducing I/O operations.
-        """
-        self._pending_save: bool = True
-
-        #  If a save task is already scheduled and not done, skip scheduling another
-        if self._save_task and not self._save_task.done():
-            return
-
-        async def _delayed_save() -> None:
-            # Wait for debounce delay
-            await asyncio.sleep(delay)
-            # If a save is still pending after the delay, perform the save
-            if self._pending_save:
-                # Ensure only one save happens at a time
-                async with self._save_lock:
-                    await self._asave_registry()
-                    # Reset pending flag
-                    self._pending_save = False
-
-        # Schedule the delayed save as a background task
-        self._save_task = asyncio.create_task(_delayed_save())
-
-    async def aregister(self, instance: ServiceInstance) -> bool:
-        """Register a new service instance."""
-        if not self.registry:
-            raise ValueError(
-                "Service registry not initialized. Call 'ainitialize()' first."
-            )
-
-        self.registry[instance.service_id] = instance
-        await self._asave_registry()
-        logger.info(
-            f"Registered service: '{instance.service_name}' [{instance.service_id}] "
-            f"at {instance.endpoint_url}"
-        )
-        return True
-
-    async def abatch_register(self, instances: list[ServiceInstance]) -> bool:
-        """Register multiple service instances."""
-        async with self._lock:
-            for instance in instances:
-                await self.aregister(instance)
-        return True
-
-    async def aderegister(self, service_id: str) -> bool:
-        """Deregister a service instance."""
-        if service_id not in self.registry:
-            return False
-
-        async with self._lock:
-            # Thread-safe removal (prevents race conditions)
-            if service_id in self.registry:
-                # Remove the service from the registry
-                instance = self.registry.pop(service_id)
-                await self._asave_registry()
-                logger.info(
-                    f"Deregistered service: '{instance.service_name}' [{service_id}]"
-                )
-                return True
-            logger.warning(
-                f"Service ID {service_id} not found in registry for deregistration."
-            )
-            return False
-
-    async def abatch_deregister(self, service_ids: list[str]) -> bool:
-        """Deregister multiple service instances."""
-        async with self._lock:
-            for service_id in service_ids:
-                await self.aderegister(service_id)
-        return True
-
-    def get_healthy_instances_cached(self, service_name: str) -> list[ServiceInstance]:
-        """Get all healthy service instances with TTL caching."""
-        # Check cache first
-        cached_instances = self._healthy_cache.get(service_name)
-        if cached_instances:
-            cache_time, instances = cached_instances
-            # Check TTL
-            if time.time() - cache_time < self._healthy_cache_ttl:
-                return instances
-
-        # Else: Compute fresh list (Cache miss/stale data avoidance)
-        instances = [
-            inst
-            for inst in self.registry.values()
-            if inst.service_name == service_name
-            and inst.status == StatusEnum.HEALTHY
-            and not inst.is_stale
-        ]
-        self._healthy_cache[service_name] = (time.time(), instances)
-        return instances
-
-    async def aget_healthy_instances_cached(
-        self, service_name: str
-    ) -> list[ServiceInstance]:
-        """Async wrapper to get all healthy service instances with TTL caching."""
-        return await asyncio.to_thread(self.get_healthy_instances_cached, service_name)
-
-    async def ahealth_check_loop(self) -> None:
-        """Periodically check the health of registered services."""
-        while True:
-            await self._acheck_all_health()
-            await asyncio.sleep(self.health_check_interval)
-
-    async def _acheck_single_health(
-        self, aclient: httpx.AsyncClient, service_id: str
-    ) -> None:
-        """Check health of a registered services and update its status."""
-        instance: ServiceInstance = self.registry[service_id]
-        try:
-            response = await aclient.get(instance.health_check_url)
-            if response.status_code == 200:
-                instance.last_heartbeat = time.time()
-                instance.status = StatusEnum.HEALTHY
-                logger.info(
-                    f"Health check passed for service '{instance.service_name}' [{service_id}]"
-                )
-            else:
-                instance.status = StatusEnum.UNHEALTHY
-                logger.warning(
-                    f"Health check returned {response.status_code} for service "
-                    f"'{instance.service_name}' [{service_id}]"
-                )
-
-        except Exception as e:
-            logger.warning(
-                f"Health check failed for service '{instance.service_name}' [{service_id}]: {e}"
-            )
-            instance.status = StatusEnum.UNHEALTHY
-
-        if instance.is_stale:
-            instance.status = StatusEnum.UNHEALTHY
-            logger.warning(
-                f"Removing stale service: '{instance.service_name}' [{service_id}]."
-            )
-
-            await self.aderegister(service_id)
-
-    async def _acheck_all_health(self) -> None:
-        """Check health of all registered services and update their status."""
-        async with httpx.AsyncClient(timeout=5) as aclient:
-            tasks = [
-                self._acheck_single_health(aclient, service_id)
-                for service_id in self.registry.keys()
-            ]
-
-            # Run health checks concurrently
-            await asyncio.gather(*tasks)
-
-        # Save updated statuses
-        await self._asave_registry()
-
-    async def aheartbeat(self, service_id: str) -> bool:
-        """Update the heartbeat timestamp for a service instance."""
-        if service_id not in self.registry:
-            logger.warning(f"Heartbeat received for unknown service ID: {service_id}")
-            return False
-
-        instance = self.registry[service_id]
-        instance.last_heartbeat = time.time()
-        instance.status = StatusEnum.HEALTHY
-        await self._asave_registry()
-        logger.info(
-            f"Heartbeat updated for service '{instance.service_name}' [{service_id}]"
-        )
-        return True
+        return instance.circuit_breaker
 
     def list_all_services(self) -> dict[str, list[ServiceInstance]]:
         """List all registered service instances grouped by service name."""
@@ -335,6 +389,7 @@ class ServiceRegistry:
                 services[instance.service_name] = []
                 # Add instance to the list
             services[instance.service_name].append(instance)
+
         return services
 
     @staticmethod
@@ -361,7 +416,7 @@ class ServiceRegistry:
         weight = base
 
         # ---------------- Load penalty ----------------
-        load_ratio = instance.active_connections / max_conn
+        load_ratio = instance.runtime_metrics.active_connections / max_conn
         load_penalty = int(load_ratio * 40)  # up to -40
         weight -= load_penalty
 
@@ -397,6 +452,7 @@ class BackendRegistry:
             LoadBalancerStrategyEnum.WEIGHTED: self._aweighted_strategy,
         }
         self.prediction_suffix = {
+            # Update as needed
             ModelTypeEnum.SENTIMENT: "predict",
             ModelTypeEnum.CLASSIFICATION: "classify",
             ModelTypeEnum.REGRESSION: "predict",
@@ -563,7 +619,9 @@ class BackendRegistry:
 
         async with self._lock:
             if service_id in self.service_registry.registry:
-                self.service_registry.registry[service_id].active_connections += delta
+                self.service_registry.registry[
+                    service_id
+                ].runtime_metrics.active_connections += delta
                 if persist:
                     await self.service_registry._asave_registry()
             else:

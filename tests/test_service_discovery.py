@@ -171,7 +171,7 @@ class TestServiceRegistry:
             metadata={"base_weight": 100},
             status=StatusEnum.HEALTHY,
         )
-        instance.active_connections = 10
+        instance.runtime_metrics.active_connections = 10
         weight = ServiceRegistry.compute_dynamic_weight(instance)
         assert 1 <= weight <= 100
 
@@ -214,7 +214,7 @@ class TestBackendRegistry:
             for i in range(3)
         ]
         for i, instance in enumerate(instances):
-            instance.active_connections = i * 10
+            instance.runtime_metrics.active_connections = i * 10
             instance.runtime_metrics.weight = 100 - i * 10
 
         registry.aget_healthy_instances = AsyncMock(return_value=instances)
