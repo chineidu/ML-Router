@@ -1,3 +1,4 @@
+import asyncio
 from typing import AsyncGenerator, Generator
 from unittest.mock import AsyncMock, MagicMock
 
@@ -12,7 +13,7 @@ from src.api.core.dependencies import (
     get_service_registry,
 )
 from src.schemas.backend_registry import ServiceInstance
-from src.schemas.types import ProtocolEnum, StatusEnum
+from src.schemas.types import ModelTypeEnum, ProtocolEnum, StatusEnum
 
 
 @pytest.fixture(scope="module")
@@ -36,6 +37,12 @@ def backend_registry_mock() -> MagicMock:
         last_heartbeat=None,
         status=StatusEnum.HEALTHY,
     )
+    # Provide circuit breaker behavior expected by predict route
+    circuit_breaker = MagicMock()
+    circuit_breaker.can_execute.return_value = True
+    circuit_breaker.record_success = MagicMock()
+    circuit_breaker.record_failure = MagicMock()
+    instance.circuit_breaker = circuit_breaker
     service_registry.list_all_services.return_value = {"test_service": [instance]}
 
     # Async methods used by predict route
@@ -46,6 +53,13 @@ def backend_registry_mock() -> MagicMock:
     backend_registry.service_registry = service_registry
     backend_registry.service_registry.asave_registry = AsyncMock()
     backend_registry.service_registry.compute_dynamic_weight = MagicMock(return_value=1)
+    # Provide prediction semaphore slots per model type
+    backend_registry.prediction_semaphore = {
+        ModelTypeEnum.CLASSIFICATION: asyncio.Semaphore(10),
+        ModelTypeEnum.SENTIMENT: asyncio.Semaphore(10),
+        ModelTypeEnum.REGRESSION: asyncio.Semaphore(10),
+        ModelTypeEnum.NER: asyncio.Semaphore(10),
+    }
 
     return backend_registry
 

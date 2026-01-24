@@ -1,0 +1,7 @@
+# Run locust load test
+locust -f locustfile.py --headless \
+  -u 5 \
+  -r 50 \
+  --run-time 20s \
+  --host http://0.0.0.0:8000 \
+  --html report.html;

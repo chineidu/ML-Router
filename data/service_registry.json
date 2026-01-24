@@ -2,65 +2,17 @@
     "svc-1": {
         "service_id": "svc-1",
         "service_name": "sentiment",
-        "host": "sentiment_model_1",
+        "host": "localhost",
         "port": 8001,
         "protocol": "http",
-        "ttl_seconds": 10,
-        "health_check_url": "http://sentiment_model_1:8001/health",
+        "ttl_seconds": 15,
+        "health_check_url": "http://localhost:8001/health",
         "metadata": {
             "framework": "TensorFlow",
             "model_type": "text-classification",
             "version": "v1.0"
         },
         "last_heartbeat": 1768824262.526887,
-        "status": "healthy"
-    },
-    "svc-2": {
-        "service_id": "svc-2",
-        "service_name": "regression",
-        "host": "regression_model_1",
-        "port": 8002,
-        "protocol": "http",
-        "ttl_seconds": 10,
-        "health_check_url": "http://regression_model_1:8002/health",
-        "metadata": {
-            "framework": "Scikit-Learn",
-            "model_type": "regression",
-            "version": "v1.2"
-        },
-        "last_heartbeat": 1768824262.5258346,
-        "status": "healthy"
-    },
-    "svc-3": {
-        "service_id": "svc-3",
-        "service_name": "classification",
-        "host": "classification_model_1",
-        "port": 8003,
-        "protocol": "http",
-        "ttl_seconds": 10,
-        "health_check_url": "http://classification_model_1:8003/health",
-        "metadata": {
-            "framework": "XGBoost",
-            "model_type": "classification",
-            "version": "v2.6"
-        },
-        "last_heartbeat": 1768824262.5275445,
-        "status": "healthy"
-    },
-    "svc-4": {
-        "service_id": "svc-4",
-        "service_name": "classification",
-        "host": "classification_model_2",
-        "port": 8003,
-        "protocol": "http",
-        "ttl_seconds": 10,
-        "health_check_url": "http://classification_model_2:8003/health",
-        "metadata": {
-            "framework": "XGBoost",
-            "model_type": "classification",
-            "version": "v2.6"
-        },
-        "last_heartbeat": 1768824262.5276465,
         "status": "healthy"
     }
 }

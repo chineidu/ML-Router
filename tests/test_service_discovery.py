@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from src.api.core.exceptions import ServiceUnavailableError
 from src.schemas.backend_registry import ServiceInstance
 from src.schemas.types import (
     LoadBalancerStrategyEnum,
@@ -219,6 +220,7 @@ class TestBackendRegistry:
 
         registry.aget_healthy_instances = AsyncMock(return_value=instances)
         registry.aget_healthy_instances_cached = AsyncMock(return_value=instances)
+        registry.get_healthy_instances_cached = MagicMock(return_value=instances)
         registry.compute_dynamic_weight = MagicMock(return_value=50)
         return registry
 
@@ -296,7 +298,7 @@ class TestBackendRegistry:
         """Test round-robin strategy when no healthy instances available."""
         service_registry_mock.aget_healthy_instances = AsyncMock(return_value=[])
         service_registry_mock.aget_healthy_instances_cached = AsyncMock(return_value=[])
-        with pytest.raises(RuntimeError, match="No healthy instances available"):
+        with pytest.raises(ServiceUnavailableError):
             await backend_registry._around_robin_strategy(ModelTypeEnum.SENTIMENT)
 
 

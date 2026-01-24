@@ -10,12 +10,6 @@ if TYPE_CHECKING:
 logger = create_logger(name=__name__)
 
 
-class CircuitOpenError(RuntimeError):
-    """Exception raised when the circuit breaker is open and requests are blocked."""
-
-    pass
-
-
 class CircuitBreaker:
     def __init__(self, failure_threshold: int = 3, recovery_timeout: int = 60) -> None:
         self.failure_threshold = failure_threshold

@@ -8,17 +8,22 @@ config:
 
   registry_config:
     registry_file: "data/service_registry.json"
-    load_registry_from_file: false
+    load_registry_from_file: true
     health_check_interval: 20
 
   circuit_breaker_config:
     failure_threshold: 5
     recovery_timeout_seconds: 30
-    expected_exception_types:
-      - ConnectionError
-      - TimeoutError
+
   load_balancer_config:
-    strategy: weighted
+    strategy: weighted # Options: round_robin, weighted or least_connections
+
+  prediction_semaphore_config:
+    # Bulkhead pattern to limit concurrent requests to each model type
+    classification: 20
+    ner: 10
+    regression: 25
+    sentiment: 15
 
   api_config:
     title: TaskFlow API
@@ -39,5 +44,5 @@ config:
           - "*"
     ratelimit:
       default_rate: 50
-      burst_rate: 10000
+      burst_rate: 100000  # Update later (currently debugging)
       login_rate: 10

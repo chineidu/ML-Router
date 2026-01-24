@@ -12,8 +12,9 @@ from tenacity import (
 )
 
 from src import create_logger
+from src.api.core.exceptions import CircuitOpenError
 from src.schemas.types import CircuitBreakerStateEnum
-from src.utilities.circuit_breaker import CircuitBreaker, CircuitOpenError
+from src.utilities.circuit_breaker import CircuitBreaker
 
 if TYPE_CHECKING:
     from src.schemas.backend_registry import ServiceInstance
@@ -127,7 +128,7 @@ async def aretriable_request(
         with attempt:
             if circuit_breaker and not circuit_breaker.can_execute():
                 raise CircuitOpenError(
-                    f"Circuit breaker is {CircuitBreakerStateEnum.OPEN.name}. Request blocked."
+                    details=f"Circuit breaker is {CircuitBreakerStateEnum.OPEN.name}. Request blocked."
                 )
             response = await client.post(url, json=payload)
 

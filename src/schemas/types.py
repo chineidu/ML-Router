@@ -20,16 +20,15 @@ class ModelTypeEnum(StrEnum):
 
 
 class ErrorCodeEnum(StrEnum):
-    BLOB_STORAGE_ERROR = "blob_storage_error"
-    BUSINESS_LOGIC_ERROR = "business_logic_error"
-    DATABASE_ERROR = "database_error"
+    CIRCUIT_OPEN_ERROR = "circuit_open_error"
     HTTP_ERROR = "http_error"
     INTERNAL_SERVER_ERROR = "internal_server_error"
     INVALID_INPUT = "invalid_input"
     MAX_RETRIES_EXCEEDED = "max_retries_exceeded"
     RESOURCES_NOT_FOUND = "resources_not_found"
-    UNAUTHORIZED = "unauthorized"
+    SERVICE_UNAVAILABLE = "service_unavailable"
     TIMEOUT_ERROR = "timeout_error"
+    UNAUTHORIZED = "unauthorized"
     UNEXPECTED_ERROR = "unexpected_error"
 
 

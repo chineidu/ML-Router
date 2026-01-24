@@ -49,12 +49,6 @@ class CircuitBreakerConfig:
             "description": "Time in seconds before attempting to reset the circuit breaker"
         },
     )
-    expected_exception_types: list[str] = field(
-        default_factory=lambda: ["ConnectionError", "TimeoutError"],
-        metadata={
-            "description": "List of exception types that are considered failures"
-        },
-    )
 
 
 @dataclass(slots=True, kw_only=True)
@@ -159,6 +153,9 @@ class AppConfig(BaseModel):
     )
     load_balancer_config: LoadBalancerConfig = Field(
         description="Configuration settings for the load balancer"
+    )
+    prediction_semaphore_config: dict[str, int] = Field(
+        description="Configuration for prediction semaphores per model type"
     )
     api_config: APIConfig = Field(description="Configuration settings for the API")
 

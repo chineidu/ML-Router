@@ -10,7 +10,9 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from src import create_logger
 from src.api.core.exceptions import (
+    CircuitOpenError,
     HTTPError,
+    ServiceUnavailableError,
     UnauthorizedError,
     UnexpectedError,
 )
@@ -102,6 +104,28 @@ class ErrorHandlingMiddleware(BaseHTTPMiddleware):
             return MsgSpecJSONResponse(
                 status_code=exc.status_code,
                 headers=headers,
+                content={
+                    "status": "error",
+                    "error": {"message": exc.message, "code": exc.error_code},
+                    "request_id": getattr(request.state, "request_id", "N/A"),
+                    "path": str(request.url.path),
+                },
+            )
+
+        except CircuitOpenError as exc:
+            return MsgSpecJSONResponse(
+                status_code=exc.status_code,
+                content={
+                    "status": "error",
+                    "error": {"message": exc.message, "code": exc.error_code},
+                    "request_id": getattr(request.state, "request_id", "N/A"),
+                    "path": str(request.url.path),
+                },
+            )
+
+        except ServiceUnavailableError as exc:
+            return MsgSpecJSONResponse(
+                status_code=exc.status_code,
                 content={
                     "status": "error",
                     "error": {"message": exc.message, "code": exc.error_code},

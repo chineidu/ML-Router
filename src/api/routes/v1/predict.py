@@ -13,7 +13,7 @@ from src.api.core.dependencies import (
     get_client,
     get_request_id,
 )
-from src.api.core.exceptions import HTTPError
+from src.api.core.exceptions import CircuitOpenError, HTTPError, ServiceUnavailableError
 from src.api.core.ratelimit import limiter
 from src.api.core.responses import MsgSpecJSONResponse
 from src.config import app_config
@@ -72,31 +72,61 @@ async def make_prediction(
     """
 
     start_time: float = time.perf_counter()
+
+    # ------ Resolve routing strategy and bulkhead ------
     strategy = app_config.load_balancer_config.strategy
     logger.debug(
         f"Received prediction request | model_type='{model_type}' | strategy={strategy}"
     )
 
+    semaphore = backend_registry.prediction_semaphore.get(model_type)
+    if not semaphore:
+        raise HTTPError(
+            details=f"Prediction semaphore not found for model type '{model_type.value}'."
+        )
+
+    # ------ Select backend and validate circuit breaker ------
+    # Cheap and non-blocking
     backend_url, instance = await backend_registry.aselect_backend_endpoint(
         model_type, strategy=strategy
     )
     if not backend_url or not instance:
-        raise HTTPError(
-            details=f"No healthy backend available for model type '{model_type}'.",
+        raise ServiceUnavailableError(
+            service_name=f"'{model_type}'.",
         )
 
     circuit_breaker: "CircuitBreaker" = instance.circuit_breaker
 
-    try:
-        if not circuit_breaker.can_execute:
-            raise HTTPError(details="Uxexpected error")
+    if not circuit_breaker.can_execute():
+        raise CircuitOpenError(
+            details="Circuit breaker is open, requests are temporarily blocked."
+        )
 
-        # ---------- Continue if circuit is CLOSED/HALF_OPEN
-        # Increment counter
+    # Continue if circuit is CLOSED/HALF_OPEN
+
+    # ------ Fail-fast (Backpressure) ------
+    # If the semaphore cannot be acquired immediately, raise error to prevent queuing
+    # i.e. limit the number of concurrent requests to the backend
+    semaphore_acquired = False
+
+    if semaphore.locked():
+        raise HTTPError(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            details=f"Max concurrent requests reached for model type '{model_type.value}'.",
+        )
+
+    # Acquire immediately (we know it's open)
+    await semaphore.acquire()
+    semaphore_acquired = True
+
+    conn_incremented = False
+
+    try:
+        # ------ Bounded concurrency ------
         await backend_registry.aupdate_active_connection(
             service_id=instance.service_id, delta=1, persist=False
         )
-
+        conn_incremented = True
         # Prepare payload for backend
         payload = {
             "input_data": input_data.input_data,
@@ -120,14 +150,20 @@ async def make_prediction(
                 details=f"Backend error: {response.text if response else 'No response received'}",
             )
         backend_data = response.json()
+
     finally:
         # Decrement counter (even if error occurs)
-        await backend_registry.aupdate_active_connection(
-            service_id=instance.service_id, delta=-1, persist=False
-        )
-        latency_ms: float = (time.perf_counter() - start_time) * 1000
+        if conn_incremented:
+            await backend_registry.aupdate_active_connection(
+                service_id=instance.service_id, delta=-1, persist=False
+            )
 
-        # Run updates in background
+        # Release semaphore. i.e. free up a slot
+        if semaphore_acquired:
+            semaphore.release()
+
+        latency_ms: float = (time.perf_counter() - start_time) * 1000
+        # Run updates in background (Non-blocking)
         asyncio.create_task(
             update_metrics_background(
                 backend_registry=backend_registry,
@@ -137,6 +173,7 @@ async def make_prediction(
             )
         )
 
+    # ------ Return response (if all the checks passed) ------
     return InferenceResponseSchema(
         request_id=request_id,
         model_type=model_type,
