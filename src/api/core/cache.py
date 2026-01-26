@@ -10,7 +10,7 @@ from typing import Any, Callable, Coroutine
 
 from aiocache import Cache
 from aiocache.serializers import JsonSerializer
-from fastapi import Request
+from fastapi import Request, Response
 from fastapi.encoders import jsonable_encoder
 
 from src import create_logger
@@ -49,7 +49,7 @@ def setup_cache() -> Cache:
         if db != 0:
             cache_kwargs["db"] = db
 
-        return Cache(Cache.REDIS, **cache_kwargs)  # type: ignore
+        return Cache(Cache.REDIS, **cache_kwargs)
 
     except Exception as e:
         warnings.warn(
@@ -57,7 +57,7 @@ def setup_cache() -> Cache:
             stacklevel=2,
         )
         # Fallback to in-memory cache
-        return Cache(Cache.MEMORY, serializer=JsonSerializer(), namespace="main")  # type: ignore
+        return Cache(Cache.MEMORY, serializer=JsonSerializer(), namespace="main")
 
 
 def cached(
@@ -84,6 +84,7 @@ def cached(
         async def wrapper(*args, **kwargs) -> Any:  # noqa: ANN002, ANN003
             # Extract request and cache from kwargs
             request: Request | None = kwargs.get("request")
+            response: Response | None = kwargs.get("response")
             cache: Cache | None = kwargs.get("cache")
             payload_dict: dict[str, Any] = {}
 
@@ -112,9 +113,13 @@ def cached(
             )
 
             # Try to get from cache
-            cached_response = await cache.get(cache_key)  # type: ignore
-            if cached_response is not None:
+            cached_response = await cache.get(cache_key)
+            if cached_response:
                 logger.info(f"Cache hit for key: {cache_key}")
+
+                # Set cached response headers if possible
+                if response:
+                    response.headers["X-Cache"] = "HIT"
                 # Some backends/serializers may return a JSON string. Attempt to
                 # deserialize so FastAPI gets native Python types (list/dict).
                 try:
@@ -126,18 +131,21 @@ def cached(
                 return cached_response
 
             # Cache miss - call the actual function
-            response = await func(*args, **kwargs)  # type: ignore
+            func_response = await func(*args, **kwargs)  # type: ignore
+            # Set cache miss header if possible
+            if response:
+                response.headers["X-Cache"] = "MISS"
 
             try:
                 # Serialize the response to a JSON-compatible format
-                serialized = jsonable_encoder(response)
+                serialized = jsonable_encoder(func_response)
                 # Store in cache
-                await cache.set(cache_key, serialized, ttl=ttl)  # type: ignore
+                await cache.set(cache_key, serialized, ttl=ttl)
 
             except Exception as e:
                 logger.warning(f"Skipping cache for key {cache_key}: {e}")
 
-            return response
+            return func_response
 
         return wrapper
 

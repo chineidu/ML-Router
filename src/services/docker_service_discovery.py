@@ -100,7 +100,8 @@ class DockerServiceDiscovery:
         attrs = container.attrs
 
         # Get container command to parse model type and port
-        command = attrs.get("Config", {}).get("Cmd", [])
+        config = attrs.get("Config", {}) if isinstance(attrs, dict) else {}
+        command = config.get("Cmd", []) if isinstance(config, dict) else []
         command_str = " ".join(command) if command else ""
 
         # Skip non-model services (database, redis, api_gateway, etc.)

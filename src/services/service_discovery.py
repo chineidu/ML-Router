@@ -58,6 +58,10 @@ class ServiceRegistry:
         # Per-service locks for fine-grained control
         self._service_locks: dict[str, asyncio.Lock] = {}
         self._save_lock = asyncio.Lock()
+        self.mode = "FILE" if load_registry_from_file else "DOCKER"
+
+        # Info
+        logger.info(f"{self.__class__.__name__} initialized with mode: [{self.mode}]")
 
     async def ainitialize(self) -> None:
         """Initialize the registry by loading from disk and performing an initial health check."""
@@ -469,16 +473,18 @@ class ServiceRegistry:
 
 LoadBalancerStrategyFn = Callable[[ModelTypeEnum], Awaitable[ServiceInstance]]
 
-sentiment_semaphore_value: int = app_config.prediction_semaphore_config.get(
-    "sentiment", 10
+sentiment_semaphore_value: int = (
+    app_config.bulkhead_config.prediction_semaphore_config.get("sentiment", 10)
 )
-classification_semaphore_value: int = app_config.prediction_semaphore_config.get(
-    "classification", 10
+classification_semaphore_value: int = (
+    app_config.bulkhead_config.prediction_semaphore_config.get("classification", 10)
 )
-regression_semaphore_value: int = app_config.prediction_semaphore_config.get(
-    "regression", 10
+regression_semaphore_value: int = (
+    app_config.bulkhead_config.prediction_semaphore_config.get("regression", 10)
 )
-ner_semaphore_value: int = app_config.prediction_semaphore_config.get("ner", 10)
+ner_semaphore_value: int = app_config.bulkhead_config.prediction_semaphore_config.get(
+    "ner", 10
+)
 
 
 class BackendRegistry:

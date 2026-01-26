@@ -18,7 +18,7 @@ TTL: int = 30  # seconds
 
 
 @router.get("/health", status_code=status.HTTP_200_OK)
-@cached(ttl=TTL, key_prefix="health")  # type: ignore
+@cached(ttl=TTL, key_prefix="health")
 @limiter.limit(f"{LIMIT_VALUE}/minute")
 async def health_check(
     request: Request,  # Required by SlowAPI  # noqa: ARG001

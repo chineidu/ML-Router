@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from pydantic import BaseModel, BeforeValidator, ConfigDict  # type: ignore
+from pydantic import BaseModel, BeforeValidator, ConfigDict
 from pydantic.alias_generators import to_camel
 
 
@@ -31,7 +31,7 @@ class BaseSchema(BaseModel):
     camelCase alias generation, population by field name, and attribute mapping.
     """
 
-    model_config: ConfigDict = ConfigDict(  # type: ignore
+    model_config: ConfigDict = ConfigDict(
         alias_generator=to_camel,  # Convert field names to camelCase
         populate_by_name=True,
         from_attributes=True,

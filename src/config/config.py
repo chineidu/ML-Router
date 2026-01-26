@@ -52,6 +52,20 @@ class CircuitBreakerConfig:
 
 
 @dataclass(slots=True, kw_only=True)
+class BulkheadConfig:
+    """Bulkhead configuration class."""
+
+    queue_timeout_seconds: float = field(
+        metadata={"description": "Timeout duration for queueing in seconds."}
+    )
+    prediction_semaphore_config: dict[str, int] = field(
+        metadata={
+            "description": "Configuration for prediction semaphores per model type"
+        }
+    )
+
+
+@dataclass(slots=True, kw_only=True)
 class ConnectionConfig:
     """Connection configuration class."""
 
@@ -154,8 +168,8 @@ class AppConfig(BaseModel):
     load_balancer_config: LoadBalancerConfig = Field(
         description="Configuration settings for the load balancer"
     )
-    prediction_semaphore_config: dict[str, int] = Field(
-        description="Configuration for prediction semaphores per model type"
+    bulkhead_config: BulkheadConfig = Field(
+        description="Configuration for bulkhead pattern and queue timeout"
     )
     api_config: APIConfig = Field(description="Configuration settings for the API")
 

@@ -60,7 +60,7 @@ def create_application() -> FastAPI:
     # Add custom middleware (LIFO: Last In, First Out for requests)
     # These are added first (innermost layer, closest to routes)
     for mdlware in MIDDLEWARE_STACK:
-        app.add_middleware(mdlware)
+        app.add_middleware(mdlware)  # ty:ignore[invalid-argument-type]
 
     # Configure CORS middleware (outer layer to ensure error responses have CORS headers)
     app.add_middleware(
@@ -72,7 +72,7 @@ def create_application() -> FastAPI:
     )
 
     # Add GZip middleware for response compression (outermost layer)
-    app.add_middleware(GZipMiddleware, minimum_size=1000)
+    app.add_middleware(GZipMiddleware, minimum_size=1000)  # ty:ignore[invalid-argument-type]
 
     # Include routers
     app.include_router(health.router, prefix=prefix)

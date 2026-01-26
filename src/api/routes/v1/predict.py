@@ -3,7 +3,7 @@ import time
 from typing import TYPE_CHECKING, Annotated
 
 from aiocache import Cache
-from fastapi import APIRouter, Depends, Path, Request, status
+from fastapi import APIRouter, Depends, Path, Request, Response, status
 
 from src import create_logger
 from src.api.core.cache import cached
@@ -38,6 +38,7 @@ router = APIRouter(tags=["predict"], default_response_class=MsgSpecJSONResponse)
 @limiter.limit(f"{LIMIT_VALUE}/minute")
 async def make_prediction(
     request: Request,  # Required by SlowAPI  # noqa: ARG001
+    response: Response,  # Required to set cache headers # noqa: ARG001
     model_type: Annotated[
         ModelTypeEnum, Path(description="Type of model to use for prediction.")
     ],
@@ -104,20 +105,22 @@ async def make_prediction(
 
     # Continue if circuit is CLOSED/HALF_OPEN
 
-    # ------ Fail-fast (Backpressure) ------
-    # If the semaphore cannot be acquired immediately, raise error to prevent queuing
-    # i.e. limit the number of concurrent requests to the backend
+    # ------ Backpressure + Queue ------
+    # Semaphore enforces max concurrent requests per model type. Excess requests queue up
+    # and wait for a slot to become available. If a request waits longer than QUEUE_TIMEOUT,
+    # it's rejected with 503 Service Unavailable to signal backpressure to the client.
+    QUEUE_TIMEOUT: float = app_config.bulkhead_config.queue_timeout_seconds
     semaphore_acquired = False
 
-    if semaphore.locked():
-        raise HTTPError(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            details=f"Max concurrent requests reached for model type '{model_type.value}'.",
+    try:
+        await asyncio.wait_for(semaphore.acquire(), timeout=QUEUE_TIMEOUT)
+        semaphore_acquired = True
+    except asyncio.TimeoutError:
+        # If timeout occurs, it means the queue is full
+        logger.warning(
+            f"Queue timeout for {model_type}. Too many requests waiting. Rejecting request {request_id}"
         )
-
-    # Acquire immediately (we know it's open)
-    await semaphore.acquire()
-    semaphore_acquired = True
+        raise ServiceUnavailableError(service_name=model_type.value) from None
 
     conn_incremented = False
 
@@ -134,7 +137,7 @@ async def make_prediction(
         }
 
         # Forward request to backend
-        response = await aretriable_request(
+        backend_response = await aretriable_request(
             client=aclient,
             url=backend_url,
             payload=payload,
@@ -145,11 +148,17 @@ async def make_prediction(
             min_wait=1,
             max_wait=5,
         )
-        if response is None or response.status_code != status.HTTP_200_OK:
-            raise HTTPError(
-                details=f"Backend error: {response.text if response else 'No response received'}",
+        if (
+            backend_response is None
+            or backend_response.status_code != status.HTTP_200_OK
+        ):
+            _resp = (
+                backend_response.text if backend_response else "No response received"
             )
-        backend_data = response.json()
+            raise HTTPError(
+                details=f"Backend error: {_resp}",
+            )
+        backend_data = backend_response.json()
 
     finally:
         # Decrement counter (even if error occurs)

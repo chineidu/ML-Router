@@ -176,7 +176,7 @@ def refresh_settings() -> ConfigType:
     }
     config_cls: type[ConfigType] = configs.get(env, DevelopmentConfig)
 
-    return config_cls()  # type: ignore
+    return config_cls()
 
 
 app_settings: ConfigType = refresh_settings()
