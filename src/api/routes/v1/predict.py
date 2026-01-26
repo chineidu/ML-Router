@@ -80,7 +80,9 @@ async def make_prediction(
         f"Received prediction request | model_type='{model_type}' | strategy={strategy}"
     )
 
-    semaphore = backend_registry.prediction_semaphore.get(model_type)
+    semaphore: asyncio.Semaphore | None = backend_registry.prediction_semaphore.get(
+        model_type
+    )
     if not semaphore:
         raise HTTPError(
             details=f"Prediction semaphore not found for model type '{model_type.value}'."

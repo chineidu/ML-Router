@@ -153,6 +153,31 @@ class APIConfig:
     ratelimit: Ratelimit = field(metadata={"description": "Ratelimit configuration."})
 
 
+@dataclass(slots=True, kw_only=True)
+class DatabaseConfig:
+    """Database configuration class."""
+
+    pool_size: int = field(
+        default=30, metadata={"description": "Number of connections to keep in pool"}
+    )
+    max_overflow: int = field(
+        default=10, metadata={"description": "Number of extra connections allowed"}
+    )
+    pool_timeout: int = field(
+        default=20, metadata={"description": "Seconds to wait for a connection"}
+    )
+    pool_recycle: int = field(
+        default=1800,
+        metadata={"description": "Seconds after which to recycle connections"},
+    )
+    pool_pre_ping: bool = field(
+        default=True, metadata={"description": "Whether to test connections before use"}
+    )
+    expire_on_commit: bool = field(
+        default=False, metadata={"description": "Whether to expire objects on commit"}
+    )
+
+
 class AppConfig(BaseModel):
     """Application configuration with validation."""
 
@@ -172,6 +197,9 @@ class AppConfig(BaseModel):
         description="Configuration for bulkhead pattern and queue timeout"
     )
     api_config: APIConfig = Field(description="Configuration settings for the API")
+    database_config: DatabaseConfig = Field(
+        description="Configuration settings for the database"
+    )
 
 
 config_path: Path = ROOT / "src/config/config.yaml"
