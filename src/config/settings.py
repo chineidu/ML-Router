@@ -3,8 +3,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 from dotenv import load_dotenv
-from pydantic import SecretStr
-from pydantic.functional_validators import field_validator
+from pydantic import SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from src.schemas.types import EnvironmentEnum, ProtocolEnum
@@ -18,6 +17,11 @@ class BaseConfig(BaseSettings):
     HOST: str = "0.0.0.0"
     PORT: int = 8000
     WORKERS: int = 1
+
+    # ===== AUTH =====
+    API_KEY_SALT: str = "default_salt_value"
+    API_PREFIX_LENGTH: int = 4  # Length of the API key prefix for identification
+    API_KEY_LENGTH: int = 32  # Total length of the API key
 
     # ===== DATABASE =====
     POSTGRES_USER: str = "apigateway"

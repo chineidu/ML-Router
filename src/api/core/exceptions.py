@@ -14,24 +14,27 @@ class BaseAPIError(Exception):
         message: str,
         status_code: int = status.HTTP_500_INTERNAL_SERVER_ERROR,
         error_code: str = ErrorCodeEnum.INTERNAL_SERVER_ERROR,
+        headers: dict[str, str] | None = None,
     ) -> None:
         super().__init__(message)
         self.message = message
         self.status_code = status_code
         self.error_code = error_code or self.__class__.__name__
+        self.headers = headers or {}
         super().__init__(message)
 
 
 class UnauthorizedError(BaseAPIError):
     """Exception raised for unauthorized access."""
 
-    def __init__(self, details: str) -> None:
+    def __init__(self, details: str, headers: dict[str, str] | None = None) -> None:
         message = f"Unauthorized access: {details}"
         self.headers = {"WWW-Authenticate": "Bearer"}
         super().__init__(
             message,
             status_code=status.HTTP_401_UNAUTHORIZED,
             error_code=ErrorCodeEnum.UNAUTHORIZED,
+            headers=headers,
         )
 
 
@@ -39,20 +42,28 @@ class HTTPError(BaseAPIError):
     """Exception raised for HTTP error."""
 
     def __init__(
-        self, details: str, status_code: int = status.HTTP_503_SERVICE_UNAVAILABLE
+        self,
+        details: str,
+        status_code: int = status.HTTP_503_SERVICE_UNAVAILABLE,
+        headers: dict[str, str] | None = None,
     ) -> None:
         message = f"HTTP error: {details}"
         super().__init__(
             message,
             status_code=status_code,
             error_code=ErrorCodeEnum.HTTP_ERROR,
+            headers=headers,
         )
 
 
 class ResourcesNotFoundError(BaseAPIError):
     """Exception raised when a requested resource is not found."""
 
-    def __init__(self, resource_type: str | ResourceEnum | None = None) -> None:
+    def __init__(
+        self,
+        resource_type: str | ResourceEnum | None = None,
+        headers: dict[str, str] | None = None,
+    ) -> None:
         """Initialize the exception with a human-readable resource name.
 
         Accepts either a ResourcesType enum member, a string name (which will
@@ -73,42 +84,48 @@ class ResourcesNotFoundError(BaseAPIError):
             message,
             status_code=status.HTTP_404_NOT_FOUND,
             error_code=ErrorCodeEnum.RESOURCES_NOT_FOUND,
+            headers=headers,
         )
 
 
 class CircuitOpenError(BaseAPIError):
     """Exception raised when the circuit breaker is open and requests are blocked."""
 
-    def __init__(self, details: str) -> None:
+    def __init__(self, details: str, headers: dict[str, str] | None = None) -> None:
         message = f"Circuit breaker open: {details}"
         super().__init__(
             message,
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             error_code=ErrorCodeEnum.CIRCUIT_OPEN_ERROR,
+            headers=headers,
         )
 
 
 class ServiceUnavailableError(BaseAPIError):
     """Exception raised when no healthy service instances are available."""
 
-    def __init__(self, service_name: str) -> None:
+    def __init__(
+        self, service_name: str, headers: dict[str, str] | None = None
+    ) -> None:
         message = f"No healthy instances available for service: {service_name}"
         super().__init__(
             message,
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             error_code=ErrorCodeEnum.SERVICE_UNAVAILABLE,
+            headers=headers,
         )
 
 
 class UnexpectedError(BaseAPIError):
     """Exception raised for unexpected errors."""
 
-    def __init__(self, details: str) -> None:
+    def __init__(self, details: str, headers: dict[str, str] | None = None) -> None:
         message = f"An unexpected error occurred: {details}"
         super().__init__(
             message,
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             error_code=ErrorCodeEnum.UNEXPECTED_ERROR,
+            headers=headers,
         )
 
 

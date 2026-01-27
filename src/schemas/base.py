@@ -31,7 +31,7 @@ class BaseSchema(BaseModel):
     camelCase alias generation, population by field name, and attribute mapping.
     """
 
-    model_config: ConfigDict = ConfigDict(
+    model_config: ConfigDict = ConfigDict(  # type: ignore
         alias_generator=to_camel,  # Convert field names to camelCase
         populate_by_name=True,
         from_attributes=True,

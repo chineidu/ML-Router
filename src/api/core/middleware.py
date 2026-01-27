@@ -5,7 +5,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 from uuid import uuid4
 
-from fastapi import Request, Response, status
+from fastapi import HTTPException, Request, Response, status
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from src import create_logger
@@ -88,28 +88,33 @@ class ErrorHandlingMiddleware(BaseHTTPMiddleware):
             response: Response = await call_next(request)
             return response
 
-        except HTTPError as exc:
+        except (HTTPError, HTTPException) as exc:
             return MsgSpecJSONResponse(
                 status_code=exc.status_code,
                 content={
                     "status": "error",
-                    "error": {"message": exc.message, "code": ErrorCodeEnum.HTTP_ERROR},
+                    "error": {
+                        "message": exc.message
+                        if hasattr(exc, "message")
+                        else (exc.detail if hasattr(exc, "detail") else "HTTP error"),
+                        "code": ErrorCodeEnum.HTTP_ERROR,
+                    },
                     "request_id": getattr(request.state, "request_id", "N/A"),
                     "path": str(request.url.path),
                 },
+                headers=getattr(exc, "headers", None),
             )
 
         except UnauthorizedError as exc:
-            headers: dict[Any, Any] | Any = getattr(exc, "headers", {})
             return MsgSpecJSONResponse(
                 status_code=exc.status_code,
-                headers=headers,
                 content={
                     "status": "error",
                     "error": {"message": exc.message, "code": exc.error_code},
                     "request_id": getattr(request.state, "request_id", "N/A"),
                     "path": str(request.url.path),
                 },
+                headers=getattr(exc, "headers", None),
             )
 
         except CircuitOpenError as exc:
@@ -121,6 +126,7 @@ class ErrorHandlingMiddleware(BaseHTTPMiddleware):
                     "request_id": getattr(request.state, "request_id", "N/A"),
                     "path": str(request.url.path),
                 },
+                headers=getattr(exc, "headers", None),
             )
 
         except ServiceUnavailableError as exc:
@@ -132,6 +138,7 @@ class ErrorHandlingMiddleware(BaseHTTPMiddleware):
                     "request_id": getattr(request.state, "request_id", "N/A"),
                     "path": str(request.url.path),
                 },
+                headers=getattr(exc, "headers", None),
             )
 
         except UnexpectedError as exc:
@@ -143,6 +150,7 @@ class ErrorHandlingMiddleware(BaseHTTPMiddleware):
                     "request_id": getattr(request.state, "request_id", "N/A"),
                     "path": str(request.url.path),
                 },
+                headers=getattr(exc, "headers", None),
             )
 
         except Exception as exc:
@@ -158,6 +166,7 @@ class ErrorHandlingMiddleware(BaseHTTPMiddleware):
                     "request_id": getattr(request.state, "request_id", "N/A"),
                     "path": str(request.url.path),
                 },
+                headers=getattr(exc, "headers", None),
             )
 
 

@@ -63,3 +63,27 @@ class CircuitBreakerStateEnum(StrEnum):
 class ProtocolEnum(StrEnum):
     HTTP = "http"
     HTTPS = "https"
+
+
+class TierEnum(StrEnum):
+    """Client subscription tier."""
+
+    FREE = "free"  # low limits, short TTLs and basic support
+    PLUS = "plus"  # moderate limits, medium TTLs and standard support
+    PRO = "pro"  # high limits, long TTLs and premium support
+
+
+class ClientStatusEnum(StrEnum):
+    # Onboarding
+    PENDING_VERIFICATION = "pending_verification"  # Awaiting email/admin approval
+
+    # Normal Operation
+    ACTIVE = "active"  # Fully functional
+
+    # User-Initiated (The user wants to stop)
+    PAUSED = "paused"  # Temporarily stopped by the client
+    ARCHIVED = "archived"  # Soft-deleted
+
+    # Admin/System-Initiated (You stopped them)
+    SUSPENDED = "suspended"  # Temporarily blocked (e.g. unpaid bill, rate limit abuse)
+    BANNED = "banned"  # Permanently blocked

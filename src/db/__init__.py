@@ -13,7 +13,7 @@ from src import create_logger
 from src.config import app_config, app_settings
 from src.schemas.types import EnvironmentEnum
 
-logger = create_logger(name="db.utilities")
+logger = create_logger(name=__name__)
 
 
 class AsyncDatabasePool:

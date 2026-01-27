@@ -1,4 +1,17 @@
 {
     "python-envs.defaultEnvManager": "ms-python.python:venv",
-    "python-envs.pythonProjects": []
+    "python-envs.pythonProjects": [],
+    "sqltools.connections": [
+        {
+            "ssh": "Disabled",
+            "previewLimit": 50,
+            "server": "localhost",
+            "port": 5432,
+            "driver": "PostgreSQL",
+            "name": "Dev",
+            "database": "apigateway_db",
+            "username": "apigateway",
+            "password": "apigateway"
+        }
+    ]
 }
