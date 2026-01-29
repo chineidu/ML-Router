@@ -3,12 +3,12 @@ from typing import TYPE_CHECKING, Annotated, Any
 from fastapi import APIRouter, Depends, Query, Request, status
 
 from src import create_logger
-from src.api.core.auth import get_current_user_or_guest, require_scope
+from src.api.core.auth import require_scope
 from src.api.core.dependencies import get_backend_registry, get_service_registry
 from src.api.core.exceptions import HTTPError
 from src.api.core.ratelimit import get_rate_limiter
 from src.api.core.responses import MsgSpecJSONResponse
-from src.schemas.db.models import ApiKeySchema, BaseClientSchema, GuestClientSchema
+from src.schemas.db.models import ApiKeySchema
 from src.schemas.routes.services import (
     ServiceDeregistrationResponseSchema,
     ServiceRemovalSchema,
@@ -51,9 +51,6 @@ async def list_services(
     backend_registry: "BackendRegistry" = Depends(get_backend_registry),
     service_registry: "ServiceRegistry" = Depends(get_service_registry),
     rate_limiter=Depends(get_rate_limiter),  # noqa: ANN001, ARG001
-    current_user: BaseClientSchema | GuestClientSchema = Depends(
-        get_current_user_or_guest
-    ),  # noqa: ANN001, ARG001
 ) -> ServiceResponseSchema:
     """Route for listing registered service instances"""
     if not backend_registry:

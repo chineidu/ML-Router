@@ -6,13 +6,20 @@ import pytest
 from fastapi.testclient import TestClient
 from httpx import AsyncClient
 
+from src.api.core.auth import (
+    get_current_api_key,
+    get_current_user_or_guest,
+    require_scope,
+)
 from src.api.core.dependencies import (
     get_backend_registry,
     get_cache,
     get_client,
     get_service_registry,
 )
+from src.api.core.ratelimit import get_rate_limiter
 from src.schemas.backend_registry import ServiceInstance
+from src.schemas.db.models import GuestClientSchema
 from src.schemas.types import ModelTypeEnum, ProtocolEnum, StatusEnum
 
 
@@ -125,6 +132,31 @@ def client(
     async_cache = AsyncCacheMock()
     app.dependency_overrides[get_cache] = lambda: async_cache
 
+    # Mock rate limiter to bypass Redis
+    app.dependency_overrides[get_rate_limiter] = lambda: None
+
+    # Mock authentication to return guest user
+    app.dependency_overrides[get_current_user_or_guest] = lambda: GuestClientSchema()
+
+    # Mock require_scope to return an async no-op dependency
+    async def mock_scope_dependency():
+        return None
+
+    app.dependency_overrides[require_scope] = lambda *args: mock_scope_dependency
+
+    # Mock get_current_api_key to bypass API key authentication
+    from src.schemas.db.models import ApiKeySchema
+
+    mock_api_key = ApiKeySchema(
+        id=1,
+        client_id=1,
+        key_prefix="test",
+        key_hash="test_hash",
+        name="test_key",
+        scopes=["read:data", "write:data"],
+    )
+    app.dependency_overrides[get_current_api_key] = lambda: mock_api_key
+
     with TestClient(app) as tc:
         # After startup, double-check state (keep for compatibility)
         app.state.backend_registry = backend_registry_mock
@@ -158,6 +190,31 @@ async def async_client(
 
     async_cache = AsyncCacheMock()
     app.dependency_overrides[get_cache] = lambda: async_cache
+
+    # Mock rate limiter to bypass Redis
+    app.dependency_overrides[get_rate_limiter] = lambda: None
+
+    # Mock authentication to return guest user
+    app.dependency_overrides[get_current_user_or_guest] = lambda: GuestClientSchema()
+
+    # Mock require_scope to return an async no-op dependency
+    async def mock_scope_dependency():
+        return None
+
+    app.dependency_overrides[require_scope] = lambda *args: mock_scope_dependency
+
+    # Mock get_current_api_key to bypass API key authentication
+    from src.schemas.db.models import ApiKeySchema
+
+    mock_api_key = ApiKeySchema(
+        id=1,
+        client_id=1,
+        key_prefix="test",
+        key_hash="test_hash",
+        name="test_key",
+        scopes=["read:data", "write:data"],
+    )
+    app.dependency_overrides[get_current_api_key] = lambda: mock_api_key
 
     # httpx versions differ in how ASGI apps are provided. Try the simplest API first,
     # otherwise fall back to using an ASGI transport.
