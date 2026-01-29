@@ -16,15 +16,11 @@ from sqlalchemy import (
     String,
     func,
 )
-from sqlalchemy import (
-    Enum as SAEnum,
-)
 from sqlalchemy.ext.asyncio.session import AsyncSession
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 from src.config import app_settings
 from src.db import AsyncDatabasePool
-from src.schemas.types import ClientStatusEnum, TierEnum
 
 
 class Base(DeclarativeBase):
@@ -44,15 +40,18 @@ class DBClient(Base):
     id: Mapped[int] = mapped_column("id", primary_key=True)
     external_id: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
+    email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+    password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
 
-    # Enums
-    tier: Mapped[str] = mapped_column(SAEnum(TierEnum), nullable=False)
-    status: Mapped[str] = mapped_column(SAEnum(ClientStatusEnum), nullable=False)
+    # Enums as strings (Reverted to strings for ease of use during migrations)
+    tier: Mapped[str] = mapped_column(String(50), nullable=False)
+    status: Mapped[str] = mapped_column(String(50), nullable=False)
 
     # Decimal is used for precise financial calculations
     credits: Mapped[Decimal] = mapped_column(
         Numeric(10, 4), nullable=False, default=0.0
     )
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(
@@ -101,7 +100,7 @@ class DBApiKey(Base):
     requests_per_minute: Mapped[int] = mapped_column(
         Integer, nullable=False, default=60
     )
-    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=func.now()

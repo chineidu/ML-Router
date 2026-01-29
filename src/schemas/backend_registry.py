@@ -1,6 +1,8 @@
 import time
 from dataclasses import asdict, dataclass, field
-from typing import Any
+from typing import Annotated, Any
+
+from pydantic import Field
 
 from src.schemas.types import ProtocolEnum, StatusEnum
 
@@ -64,7 +66,8 @@ class ServiceInstance:
         init=False,
         metadata={"description": "Runtime metrics"},
     )
-    circuit_breaker: Any = field(
+    # Exclude from persistence (FastAPI uses Pydantic v2 which struggles with serializing complex types)
+    circuit_breaker: Annotated[Any, Field(exclude=True)] = field(
         default=None,
         init=False,
         metadata={"description": "Circuit breaker for the service instance."},

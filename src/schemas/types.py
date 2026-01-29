@@ -25,6 +25,7 @@ class ErrorCodeEnum(StrEnum):
     INTERNAL_SERVER_ERROR = "internal_server_error"
     INVALID_INPUT = "invalid_input"
     MAX_RETRIES_EXCEEDED = "max_retries_exceeded"
+    RATE_LIMIT_ERROR = "rate_limit_error"
     RESOURCES_NOT_FOUND = "resources_not_found"
     SERVICE_UNAVAILABLE = "service_unavailable"
     TIMEOUT_ERROR = "timeout_error"
@@ -68,12 +69,15 @@ class ProtocolEnum(StrEnum):
 class TierEnum(StrEnum):
     """Client subscription tier."""
 
+    GUEST = "guest"  # guest users with minimal access, read-only
     FREE = "free"  # low limits, short TTLs and basic support
     PLUS = "plus"  # moderate limits, medium TTLs and standard support
     PRO = "pro"  # high limits, long TTLs and premium support
 
 
 class ClientStatusEnum(StrEnum):
+    """Client account status."""
+
     # Onboarding
     PENDING_VERIFICATION = "pending_verification"  # Awaiting email/admin approval
 
@@ -87,3 +91,11 @@ class ClientStatusEnum(StrEnum):
     # Admin/System-Initiated (You stopped them)
     SUSPENDED = "suspended"  # Temporarily blocked (e.g. unpaid bill, rate limit abuse)
     BANNED = "banned"  # Permanently blocked
+
+
+class RoleTypeEnum(StrEnum):
+    """User role types."""
+
+    GUEST = "guest"
+    ADMIN = "admin"
+    USER = "user"

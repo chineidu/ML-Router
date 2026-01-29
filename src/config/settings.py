@@ -20,8 +20,12 @@ class BaseConfig(BaseSettings):
 
     # ===== AUTH =====
     API_KEY_SALT: str = "default_salt_value"
-    API_PREFIX_LENGTH: int = 4  # Length of the API key prefix for identification
+    SECRET_KEY: SecretStr = SecretStr("default_secret_key")
+    ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60  # Token expiration time in minutes
+    API_KEY_PREFIX_LENGTH: int = 4  # Length of the API key prefix for identification
     API_KEY_LENGTH: int = 32  # Total length of the API key
+    API_KEY_PREFIX: str = "mlsk_"  # Default prefix for generated API keys
 
     # ===== DATABASE =====
     POSTGRES_USER: str = "apigateway"
@@ -35,6 +39,7 @@ class BaseConfig(BaseSettings):
     REDIS_PORT: int = 6379
     REDIS_PASSWORD: SecretStr = SecretStr("your_redis_password")
     REDIS_DB: int = 0
+    REDIS_RATE_LIMIT_DB: int = 1
 
     @field_validator("PORT", "POSTGRES_PORT", "REDIS_PORT", mode="before")
     @classmethod

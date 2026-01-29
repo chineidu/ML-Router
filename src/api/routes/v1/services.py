@@ -3,11 +3,12 @@ from typing import TYPE_CHECKING, Annotated, Any
 from fastapi import APIRouter, Depends, Query, Request, status
 
 from src import create_logger
+from src.api.core.auth import get_current_user_or_guest, require_scope
 from src.api.core.dependencies import get_backend_registry, get_service_registry
 from src.api.core.exceptions import HTTPError
-from src.api.core.ratelimit import limiter
+from src.api.core.ratelimit import get_rate_limiter
 from src.api.core.responses import MsgSpecJSONResponse
-from src.config import app_config
+from src.schemas.db.models import ApiKeySchema, BaseClientSchema, GuestClientSchema
 from src.schemas.routes.services import (
     ServiceDeregistrationResponseSchema,
     ServiceRemovalSchema,
@@ -20,16 +21,16 @@ if TYPE_CHECKING:
 
 router = APIRouter(tags=["services"], default_response_class=MsgSpecJSONResponse)
 logger = create_logger(name=__name__)
-LIMIT_VALUE: int = app_config.api_config.ratelimit.default_rate
 
 
-@limiter.limit(f"{LIMIT_VALUE}/minute")
 @router.post("/services", status_code=status.HTTP_200_OK)
 async def register_service(
     request: Request,  # Required by SlowAPI  # noqa: ARG001
     input_data: ServiceRequestSchema,
     backend_registry: "BackendRegistry" = Depends(get_backend_registry),
     service_registry: "ServiceRegistry" = Depends(get_service_registry),
+    rate_limiter=Depends(get_rate_limiter),  # noqa: ANN001, ARG001
+    api_key: ApiKeySchema = Depends(require_scope("write:data")),  # noqa: ANN001, ARG001
 ) -> ServiceResponseSchema:
     """Route for registering service instances"""
     if not backend_registry:
@@ -45,11 +46,14 @@ async def register_service(
 
 
 @router.get("/services/list", status_code=status.HTTP_200_OK)
-@limiter.limit(f"{LIMIT_VALUE}/minute")
 async def list_services(
     request: Request,  # Required by SlowAPI  # noqa: ARG001
     backend_registry: "BackendRegistry" = Depends(get_backend_registry),
     service_registry: "ServiceRegistry" = Depends(get_service_registry),
+    rate_limiter=Depends(get_rate_limiter),  # noqa: ANN001, ARG001
+    current_user: BaseClientSchema | GuestClientSchema = Depends(
+        get_current_user_or_guest
+    ),  # noqa: ANN001, ARG001
 ) -> ServiceResponseSchema:
     """Route for listing registered service instances"""
     if not backend_registry:
@@ -67,13 +71,13 @@ async def list_services(
     )
 
 
-@limiter.limit(f"{LIMIT_VALUE}/minute")
 @router.delete("/services", status_code=status.HTTP_200_OK)
 async def deregister_service(
     request: Request,  # Required by SlowAPI  # noqa: ARG001
     input_data: ServiceRemovalSchema,
     backend_registry: "BackendRegistry" = Depends(get_backend_registry),
     service_registry: "ServiceRegistry" = Depends(get_service_registry),
+    rate_limiter=Depends(get_rate_limiter),  # noqa: ANN001, ARG001
 ) -> ServiceDeregistrationResponseSchema:
     """Route for deregistering service instances"""
     if not backend_registry:
@@ -88,7 +92,6 @@ async def deregister_service(
     )
 
 
-@limiter.limit(f"{LIMIT_VALUE}/minute")
 @router.get("/services/heartbeat", status_code=status.HTTP_200_OK)
 async def heartbeat(
     request: Request,  # Required by SlowAPI  # noqa: ARG001
@@ -100,6 +103,7 @@ async def heartbeat(
     ],
     backend_registry: "BackendRegistry" = Depends(get_backend_registry),
     service_registry: "ServiceRegistry" = Depends(get_service_registry),
+    rate_limiter=Depends(get_rate_limiter),  # noqa: ANN001, ARG001
 ) -> dict[str, Any]:
     """Route for checking heartbeat of service instances."""
     if not backend_registry:

@@ -17,7 +17,7 @@ from sqlalchemy.orm import selectinload
 
 from src import create_logger
 from src.db.models import DBClient
-from src.schemas.db.models import ClientSchema
+from src.schemas.db.models import BaseClientSchema, ClientSchema
 from src.schemas.types import ClientStatusEnum
 
 logger = create_logger(__name__)
@@ -58,6 +58,24 @@ class ClientRepository:
         except Exception as e:
             logger.error(f"Error fetching client by ids {external_ids}: {e}")
             return []
+
+    async def aget_client_by_name(self, name: str) -> DBClient | None:
+        """Get a client by its name."""
+        try:
+            stmt = select(DBClient).where(DBClient.name == name)
+            return await self.db.scalar(stmt)
+        except Exception as e:
+            logger.error(f"Error fetching client by name '{name}': {e}")
+            return None
+
+    async def aget_client_by_email(self, email: str) -> DBClient | None:
+        """Get a client by its email."""
+        try:
+            stmt = select(DBClient).where(DBClient.email == email)
+            return await self.db.scalar(stmt)
+        except Exception as e:
+            logger.error(f"Error fetching client by email '{email}': {e}")
+            return None
 
     async def aget_client_with_keys(self, external_id: str) -> DBClient | None:
         """Get a client along with their associated API keys.
@@ -155,12 +173,14 @@ class ClientRepository:
         result = await self.db.scalars(stmt)
         return list(result.all())
 
-    async def acreate_client(self, clients: list[ClientSchema]) -> None:
+    async def acreate_client(self, clients: list[ClientSchema]) -> bool:
         """Batch create client in the database."""
         try:
             db_clients = [
                 DBClient(
-                    **client.model_dump(exclude={"id", "created_at", "updated_at"})
+                    **client.model_dump(
+                        exclude={"id", "password", "created_at", "updated_at"}
+                    )
                 )
                 for client in clients
             ]
@@ -174,6 +194,7 @@ class ClientRepository:
             logger.info(
                 f"Successfully created {len(db_clients)!r} clients in the database."
             )
+            return True
 
         except IntegrityError as e:
             logger.error(f"Integrity error creating clients: {e}")
@@ -303,10 +324,12 @@ class ClientRepository:
             await self.db.rollback()
             raise e
 
-    def convert_DBClient_to_schema(self, db_client: DBClient) -> ClientSchema | None:  # noqa: N802
+    def convert_DBClient_to_schema(
+        self, db_client: DBClient
+    ) -> BaseClientSchema | None:  # noqa: N802
         """Convert a DBClient ORM object directly to a Pydantic response schema."""
         try:
-            return ClientSchema.model_validate(db_client)
+            return BaseClientSchema.model_validate(db_client)
         except Exception as e:
-            logger.error(f"Error converting DBClient to ClientSchema: {e}")
+            logger.error(f"Error converting DBClient to BaseClientSchema: {e}")
             return None

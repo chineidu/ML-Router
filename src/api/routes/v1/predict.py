@@ -14,7 +14,6 @@ from src.api.core.dependencies import (
     get_request_id,
 )
 from src.api.core.exceptions import CircuitOpenError, HTTPError, ServiceUnavailableError
-from src.api.core.ratelimit import limiter
 from src.api.core.responses import MsgSpecJSONResponse
 from src.config import app_config
 from src.schemas.input_schema import InferenceRequest
@@ -29,13 +28,11 @@ if TYPE_CHECKING:
     from src.utilities.circuit_breaker import CircuitBreaker
 
 logger = create_logger(name=__name__)
-LIMIT_VALUE: int = app_config.api_config.ratelimit.burst_rate
 router = APIRouter(tags=["predict"], default_response_class=MsgSpecJSONResponse)
 
 
 @router.post("/predict/{model_type}", status_code=status.HTTP_200_OK)
-@cached(ttl=600, key_prefix="predict", payload_key="input_data")
-@limiter.limit(f"{LIMIT_VALUE}/minute")
+@cached(ttl=600, key_prefix="predict", payload_key="input_data")  # type: ignore
 async def make_prediction(
     request: Request,  # Required by SlowAPI  # noqa: ARG001
     response: Response,  # Required to set cache headers # noqa: ARG001

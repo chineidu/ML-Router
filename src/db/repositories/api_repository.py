@@ -12,6 +12,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
 )
+from sqlalchemy.orm import selectinload
 
 from src import create_logger
 from src.db.models import DBApiKey
@@ -36,9 +37,13 @@ class ApiKeyRepository:
             return None
 
     async def aget_api_keys_by_prefix(self, key_prefix: str) -> DBApiKey | None:
-        """Get a api_keys by its key prefix."""
+        """Get a api_keys by its key prefix with eager loading of the client relationship."""
         try:
-            stmt = select(DBApiKey).where(DBApiKey.key_prefix == key_prefix)
+            stmt = (
+                select(DBApiKey)
+                .where(DBApiKey.key_prefix == key_prefix)
+                .options(selectinload(DBApiKey.client))
+            )
             return await self.db.scalar(stmt)
         except Exception as e:
             logger.error(f"Error fetching api_keys by key prefix '{key_prefix}': {e}")
@@ -47,9 +52,13 @@ class ApiKeyRepository:
     async def aget_api_keys_by_client_ids(
         self, client_ids: list[int]
     ) -> list[DBApiKey]:
-        """Get api_keys by their client IDs."""
+        """Get api_keys by their client IDs with eager loading of the client relationship."""
         try:
-            stmt = select(DBApiKey).where(DBApiKey.client_id.in_(client_ids))
+            stmt = (
+                select(DBApiKey)
+                .where(DBApiKey.client_id.in_(client_ids))
+                .options(selectinload(DBApiKey.client))
+            )
             result = await self.db.scalars(stmt)
             return list(result.all())
         except Exception as e:
@@ -122,7 +131,7 @@ class ApiKeyRepository:
         result = await self.db.scalars(stmt)
         return list(result.all())
 
-    async def acreate_api_keys(self, api_keys_obj: ApiKeySchema) -> None:
+    async def acreate_api_keys(self, api_keys_obj: ApiKeySchema) -> bool:
         """Create api_keys in the database."""
         try:
             data = api_keys_obj.model_dump(exclude={"id", "created_at", "last_used_at"})
@@ -147,7 +156,8 @@ class ApiKeyRepository:
             logger.info(
                 f"Successfully created {len(db_objs)} api_keys in the database."
             )
-            return
+            return True
+
         except IntegrityError as e:
             logger.error(f"Integrity error creating api_keys: {e}")
             await self.db.rollback()

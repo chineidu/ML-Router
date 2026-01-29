@@ -13,7 +13,7 @@ from tenacity import (
 
 from src import create_logger
 from src.api.core.exceptions import CircuitOpenError
-from src.schemas.types import CircuitBreakerStateEnum
+from src.schemas.types import CircuitBreakerStateEnum, TierEnum
 from src.utilities.circuit_breaker import CircuitBreaker
 
 if TYPE_CHECKING:
@@ -181,3 +181,19 @@ async def update_metrics_background(
         logger.error(
             f"Error updating service '{service_id}' metrics in background: {e}"
         )
+
+
+def get_ratelimit_value(tier: TierEnum) -> str:
+    """Get the rate limit value based on the client tier."""
+
+    if tier == TierEnum.GUEST:
+        return "10/minute"
+    if tier == TierEnum.FREE:
+        return "20/minute"
+    if tier == TierEnum.PLUS:
+        return "60/minute"
+    if tier == TierEnum.PRO:
+        return "120/minute"
+
+    # Default to FREE tier limits
+    return "10/minute"

@@ -116,6 +116,19 @@ class ServiceUnavailableError(BaseAPIError):
         )
 
 
+class RateLimitError(BaseAPIError):
+    """Exception raised when a rate limit is exceeded."""
+
+    def __init__(self, details: str, headers: dict[str, str] | None = None) -> None:
+        message = f": {details}"
+        super().__init__(
+            message,
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            error_code=ErrorCodeEnum.RATE_LIMIT_ERROR,
+            headers=headers,
+        )
+
+
 class UnexpectedError(BaseAPIError):
     """Exception raised for unexpected errors."""
 
