@@ -3,7 +3,7 @@
 from fastapi import Request, status
 
 from src.api.core.responses import MsgSpecJSONResponse
-from src.schemas.types import ErrorCodeEnum, ResourceEnum
+from src.schemas.types import ErrorCodeEnum
 
 
 class BaseAPIError(Exception):
@@ -52,38 +52,6 @@ class HTTPError(BaseAPIError):
             message,
             status_code=status_code,
             error_code=ErrorCodeEnum.HTTP_ERROR,
-            headers=headers,
-        )
-
-
-class ResourcesNotFoundError(BaseAPIError):
-    """Exception raised when a requested resource is not found."""
-
-    def __init__(
-        self,
-        resource_type: str | ResourceEnum | None = None,
-        headers: dict[str, str] | None = None,
-    ) -> None:
-        """Initialize the exception with a human-readable resource name.
-
-        Accepts either a ResourcesType enum member, a string name (which will
-        be resolved to an enum value if possible), or None.
-        """
-
-        if isinstance(resource_type, ResourceEnum):
-            resource_name = str(resource_type.value)
-        elif isinstance(resource_type, str):
-            try:
-                resource_name = str(ResourceEnum(resource_type).value)
-            except Exception:
-                resource_name = resource_type
-        else:
-            resource_name = resource_type or "unknown"
-        message = f"Resource: {resource_name} not found"
-        super().__init__(
-            message,
-            status_code=status.HTTP_404_NOT_FOUND,
-            error_code=ErrorCodeEnum.RESOURCES_NOT_FOUND,
             headers=headers,
         )
 

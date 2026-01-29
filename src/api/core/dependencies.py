@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 from aiocache import Cache
 from fastapi import Header, Request
 
-from src.api.core.exceptions import ResourcesNotFoundError
+from src.api.core.exceptions import BaseAPIError
 from src.schemas.types import ResourceEnum
 
 if TYPE_CHECKING:
@@ -21,7 +21,7 @@ _executor_lock = threading.Lock()
 def get_cache(request: Request) -> Cache:
     """Dependency to inject cache into endpoints."""
     if not hasattr(request.app.state, "cache") or request.app.state.cache is None:
-        raise ResourcesNotFoundError(resource_type=ResourceEnum.CACHE)
+        raise BaseAPIError(message=f"Error loading '{ResourceEnum.CACHE}'")
     return request.app.state.cache
 
 
@@ -63,7 +63,7 @@ def get_backend_registry(request: Request) -> "BackendRegistry":
         not hasattr(request.app.state, "backend_registry")
         or request.app.state.backend_registry is None
     ):
-        raise ResourcesNotFoundError(resource_type=ResourceEnum.BACKEND_REGISTRY)
+        raise BaseAPIError(message=f"Error loading '{ResourceEnum.BACKEND_REGISTRY}'")
     return request.app.state.backend_registry
 
 
@@ -73,14 +73,14 @@ def get_service_registry(request: Request) -> "ServiceRegistry":
         not hasattr(request.app.state, "service_registry")
         or request.app.state.service_registry is None
     ):
-        raise ResourcesNotFoundError(resource_type=ResourceEnum.SERVICE_REGISTRY)
+        raise BaseAPIError(message=f"Error loading '{ResourceEnum.SERVICE_REGISTRY}'")
     return request.app.state.service_registry
 
 
 def get_client(request: Request) -> "httpx.AsyncClient":
     """Dependency to inject shared HTTP client into endpoints."""
     if not hasattr(request.app.state, "client") or request.app.state.client is None:
-        raise ResourcesNotFoundError(resource_type=ResourceEnum.DATABASE)
+        raise BaseAPIError(message=f"Error loading '{ResourceEnum.DATABASE}'")
     return request.app.state.client
 
 

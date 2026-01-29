@@ -58,13 +58,13 @@ class DBClient(Base):
         DateTime(timezone=True), nullable=False, default=func.now()
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=func.now(), onupdate=func.now()
+        DateTime(timezone=True), nullable=True, default=func.now(), onupdate=func.now()
     )
 
     # Relationship: Enables Python-side navigation (e.g. my_client_instance.api_keys)
     # Note: This does not create a column in the 'clients' database table.
     # When retrieving, use selectinload(DBClient.api_keys) to eager load api_keys
-    api_keys: Mapped[list["DBApiKey"]] = relationship(
+    api_keys: Mapped[list["DBAPIKey"]] = relationship(
         back_populates="client", cascade="all, delete-orphan"
     )
 
@@ -85,7 +85,7 @@ class DBClient(Base):
         )
 
 
-class DBApiKey(Base):
+class DBAPIKey(Base):
     """Data model for storing api_keys information."""
 
     __tablename__: str = "api_keys"
@@ -104,6 +104,9 @@ class DBApiKey(Base):
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=func.now(), onupdate=func.now()
     )
     last_used_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=True

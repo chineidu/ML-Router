@@ -1,4 +1,5 @@
 from enum import StrEnum
+from typing import Final
 
 
 class EnvironmentEnum(StrEnum):
@@ -99,3 +100,52 @@ class RoleTypeEnum(StrEnum):
     GUEST = "guest"
     ADMIN = "admin"
     USER = "user"
+
+
+class APIKeyScopeEnum(StrEnum):
+    """API key scopes using resource:action naming convention"""
+
+    # ----- Core data access -----
+    DATA_READ = "data:read"  # Read any data / most resources
+    DATA_WRITE = "data:write"  # Create/update/delete most data
+
+    # ----- Admin & dangerous -----
+    ADMIN_FULL = "admin:full"
+    API_KEYS_MANAGE = "api_keys:manage"
+
+    # ----- Utility / special -----
+    EXPORT_DATA = "export:data"
+    JOBS_RUN = "jobs:run"
+    ANALYTICS_READ = "analytics:read"
+    LOGS_READ = "logs:read"
+
+    # Very narrow / internal
+    HEALTH_CHECK = "health:check"
+    RATE_LIMIT_EXEMPT = "rate_limit:exempt"
+
+
+# Convenience sets (not enum members)
+COMMON_READ_SCOPES: Final = frozenset(
+    [
+        APIKeyScopeEnum.DATA_READ,
+        # add more granular ones as needed: users:read, projects:read, ...
+        APIKeyScopeEnum.ANALYTICS_READ,
+        APIKeyScopeEnum.LOGS_READ,
+        APIKeyScopeEnum.HEALTH_CHECK,
+    ]
+)
+
+WRITE_SCOPES: Final = frozenset(
+    [
+        APIKeyScopeEnum.DATA_WRITE,
+        # add more granular ones as needed: users:write, projects:write, ...
+        APIKeyScopeEnum.JOBS_RUN,
+    ]
+)
+
+DANGEROUS_SCOPES: Final = frozenset(
+    [
+        APIKeyScopeEnum.ADMIN_FULL,
+        APIKeyScopeEnum.API_KEYS_MANAGE,
+    ]
+)

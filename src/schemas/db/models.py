@@ -5,7 +5,7 @@ from uuid import uuid4
 from pydantic import ConfigDict, EmailStr, Field, SecretStr
 
 from src.schemas.base import BaseSchema
-from src.schemas.types import ClientStatusEnum, TierEnum
+from src.schemas.types import APIKeyScopeEnum, ClientStatusEnum, TierEnum
 
 
 class BaseClientSchema(BaseSchema):
@@ -72,22 +72,46 @@ class ClientSchema(ClientCreateSchema):
     password_hash: str
 
 
-class ApiKeySchema(BaseSchema):
-    """Schema representing a database API key."""
+class APIUpdateSchema(BaseSchema):
+    """Schema representing the update of an API key."""
 
     model_config = ConfigDict(
         from_attributes=True,
         json_encoders={datetime: lambda v: v.isoformat() if v else None},
     )
+    id: int | None = Field(
+        default=None, description="Unique identifier of the API key."
+    )
+    name: str | None = Field(default=None, description="Name of the API key.")
+    requests_per_minute: int | None = Field(
+        default=None, description="Request limit per minute for the API key."
+    )
+    expires_at: datetime | None = Field(
+        default=None, description="Expiration date and time of the API key."
+    )
+    is_active: bool | None = Field(
+        default=None, description="Active status of the API key."
+    )
 
-    id: int | None = None
-    client_id: int
-    key_prefix: str
-    key_hash: str
-    name: str
-    scopes: list[str] = Field(default_factory=list)
-    requests_per_minute: int = Field(default=60)
-    is_active: bool = Field(default=True)
-    created_at: datetime | None = Field(default=None)
-    last_used_at: datetime | None = Field(default=None)
-    expires_at: datetime | None = Field(default=None)
+
+class APIKeySchema(APIUpdateSchema):
+    """Schema representing a database API key."""
+
+    client_id: int | None = Field(description="ID of the client owning the API key.")
+    key_prefix: str = Field(description="Prefix of the API key.")
+    key_hash: str = Field(description="Hashed value of the API key.")
+    scopes: list[APIKeyScopeEnum] = Field(
+        default_factory=list,
+        description="List of scopes/permissions assigned to the API key.",
+    )
+
+    # System Managed Fields
+    created_at: datetime | None = Field(
+        default=None, description="Creation date and time of the API key."
+    )
+    updated_at: datetime | None = Field(
+        default=None, description="Last update date and time of the API key."
+    )
+    last_used_at: datetime | None = Field(
+        default=None, description="Last used date and time of the API key."
+    )

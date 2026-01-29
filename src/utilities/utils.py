@@ -1,5 +1,6 @@
 import asyncio
 import hashlib
+import re
 from typing import TYPE_CHECKING, Any
 
 import httpx
@@ -184,7 +185,18 @@ async def update_metrics_background(
 
 
 def get_ratelimit_value(tier: TierEnum) -> str:
-    """Get the rate limit value based on the client tier."""
+    """Get the rate limit value based on the client tier.
+
+    Parameters
+    ----------
+    tier : TierEnum
+        The tier of the client.
+
+    Returns
+    -------
+    str
+        The rate limit string (e.g., "10/minute").
+    """
 
     if tier == TierEnum.GUEST:
         return "10/minute"
@@ -197,3 +209,32 @@ def get_ratelimit_value(tier: TierEnum) -> str:
 
     # Default to FREE tier limits
     return "10/minute"
+
+
+def extract_rate_limit_number(tier: TierEnum, default: int = 5) -> int:
+    """Extract the numerical rate limit from the rate limit string for a given tier.
+
+    Parameters
+    ----------
+    tier : TierEnum
+        The tier of the client.
+    default : int, optional
+        The default rate limit number to return if extraction fails, by default 5
+
+    Returns
+    -------
+    int
+        The numerical rate limit extracted from the rate limit string.
+    """
+    pattern = r"\d{1,3}"
+    limit_rate = get_ratelimit_value(tier)
+
+    # Extract number from rate limit string
+    match = re.search(pattern, string=limit_rate)
+    if match:
+        result = match.group()
+    else:
+        # Handle the case where no match is found
+        result = default
+
+    return int(result)

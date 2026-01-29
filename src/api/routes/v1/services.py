@@ -8,7 +8,7 @@ from src.api.core.dependencies import get_backend_registry, get_service_registry
 from src.api.core.exceptions import HTTPError
 from src.api.core.ratelimit import get_rate_limiter
 from src.api.core.responses import MsgSpecJSONResponse
-from src.schemas.db.models import ApiKeySchema
+from src.schemas.db.models import APIKeySchema
 from src.schemas.routes.services import (
     ServiceDeregistrationResponseSchema,
     ServiceRemovalSchema,
@@ -30,7 +30,7 @@ async def register_service(
     backend_registry: "BackendRegistry" = Depends(get_backend_registry),
     service_registry: "ServiceRegistry" = Depends(get_service_registry),
     rate_limiter=Depends(get_rate_limiter),  # noqa: ANN001, ARG001
-    api_key: ApiKeySchema = Depends(require_scope("write:data")),  # noqa: ANN001, ARG001
+    api_key: APIKeySchema = Depends(require_scope("data:write")),  # noqa: ANN001, ARG001
 ) -> ServiceResponseSchema:
     """Route for registering service instances"""
     if not backend_registry:

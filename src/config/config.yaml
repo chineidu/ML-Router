@@ -28,9 +28,9 @@ config:
     strategy: weighted # Options: round_robin, weighted or least_connections
 
   api_config:
-    title: TaskFlow API
+    title: ML Router API
     name: "${.title}"
-    description: A Learning-Focused Task Queue System API
+    description: A Learning-Focused API Router for Machine Learning Models
     version: v1.0.0
     status: healthy
     prefix: /api/v1

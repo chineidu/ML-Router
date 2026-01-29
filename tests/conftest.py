@@ -145,15 +145,15 @@ def client(
     app.dependency_overrides[require_scope] = lambda *args: mock_scope_dependency
 
     # Mock get_current_api_key to bypass API key authentication
-    from src.schemas.db.models import ApiKeySchema
+    from src.schemas.db.models import APIKeySchema
 
-    mock_api_key = ApiKeySchema(
+    mock_api_key = APIKeySchema(
         id=1,
         client_id=1,
         key_prefix="test",
         key_hash="test_hash",
         name="test_key",
-        scopes=["read:data", "write:data"],
+        scopes=["data:read", "data:write"],
     )
     app.dependency_overrides[get_current_api_key] = lambda: mock_api_key
 
@@ -204,15 +204,15 @@ async def async_client(
     app.dependency_overrides[require_scope] = lambda *args: mock_scope_dependency
 
     # Mock get_current_api_key to bypass API key authentication
-    from src.schemas.db.models import ApiKeySchema
+    from src.schemas.db.models import APIKeySchema
 
-    mock_api_key = ApiKeySchema(
+    mock_api_key = APIKeySchema(
         id=1,
         client_id=1,
         key_prefix="test",
         key_hash="test_hash",
         name="test_key",
-        scopes=["read:data", "write:data"],
+        scopes=["data:read", "data:write"],
     )
     app.dependency_overrides[get_current_api_key] = lambda: mock_api_key
 

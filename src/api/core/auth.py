@@ -17,10 +17,10 @@ from src.api.core.dependencies import get_cache
 from src.api.core.exceptions import HTTPError
 from src.config import app_config, app_settings
 from src.db.models import DBClient, aget_db
-from src.db.repositories.api_repository import ApiKeyRepository
+from src.db.repositories.api_repository import APIKeyRepository
 from src.db.repositories.client_repository import ClientRepository
 from src.schemas.db.models import (
-    ApiKeySchema,
+    APIKeySchema,
     BaseClientSchema,
     ClientSchema,
     GuestClientSchema,
@@ -255,8 +255,8 @@ def get_api_key_from_header(api_key: str | None = Security(API_KEY_HEADER)) -> s
 async def get_current_api_key(
     api_key: str = Depends(get_api_key_from_header),
     db: AsyncSession = Depends(aget_db),
-    cache: Cache = Depends(get_cache),
-) -> ApiKeySchema:
+    cache: Cache = Depends(get_cache),  # noqa: ARG001
+) -> APIKeySchema:
     """Dependency to get the current API key."""
     prefix_length = app_settings.API_KEY_PREFIX_LENGTH
 
@@ -268,8 +268,8 @@ async def get_current_api_key(
         )
     key_prefix = api_key[:prefix_length]
 
-    api_key_repo = ApiKeyRepository(db)
-    db_api_key = await api_key_repo.aget_api_keys_by_prefix(key_prefix=key_prefix)
+    api_key_repo = APIKeyRepository(db)
+    db_api_key = await api_key_repo.aget_api_key_by_prefix(key_prefix=key_prefix)
     db_client = db_api_key.client if db_api_key else None
 
     if not db_client or db_client.status != ClientStatusEnum.ACTIVE:
@@ -305,7 +305,7 @@ async def get_current_api_key(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    key_obj = api_key_repo.convert_DBApiKey_to_schema(db_api_key)
+    key_obj = api_key_repo.convert_DBAPIKey_to_schema(db_api_key)
     if not key_obj:
         logger.error(
             f"Failed to convert DBApiKey to ApiKeySchema for prefix: {key_prefix}"
@@ -319,10 +319,18 @@ async def get_current_api_key(
 
 
 async def get_current_client(
-    api_key: ApiKeySchema = Depends(get_current_api_key),
+    api_key: APIKeySchema = Depends(get_current_api_key),
     db: AsyncSession = Depends(aget_db),
 ) -> BaseClientSchema:
     """Dependency to get the current client associated with the API key."""
+    if not api_key.client_id:
+        logger.error(f"API key ID {api_key.id} has no associated client_id")
+        raise HTTPError(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            details="Client not found",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     client_repo = ClientRepository(db)
     db_client = await client_repo.aget_client_by_id(api_key.client_id)
 
@@ -385,7 +393,7 @@ def require_scope(*required_scopes: str) -> Callable[..., Coroutine[Any, Any, No
     """
 
     async def _arequire_scope(
-        api_key: ApiKeySchema = Depends(get_current_api_key),
+        api_key: APIKeySchema = Depends(get_current_api_key),
     ) -> None:
         if not all(scope in api_key.scopes for scope in required_scopes):
             logger.warning(
@@ -427,7 +435,7 @@ def require_any_scope(
     """
 
     async def _arequire_any_scope(
-        api_key: ApiKeySchema = Depends(get_current_api_key),
+        api_key: APIKeySchema = Depends(get_current_api_key),
     ) -> None:
         if not any(scope in api_key.scopes for scope in required_scopes):
             logger.warning(
