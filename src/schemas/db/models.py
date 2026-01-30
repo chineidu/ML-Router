@@ -2,10 +2,10 @@ from datetime import datetime
 from typing import Any, ClassVar
 from uuid import uuid4
 
-from pydantic import ConfigDict, EmailStr, Field, SecretStr
+from pydantic import ConfigDict, EmailStr, Field, SecretStr, field_validator
 
 from src.schemas.base import BaseSchema
-from src.schemas.types import APIKeyScopeEnum, ClientStatusEnum, TierEnum
+from src.schemas.types import APIKeyScopeEnum, ClientStatusEnum, RoleTypeEnum, TierEnum
 
 
 class BaseClientSchema(BaseSchema):
@@ -21,11 +21,29 @@ class BaseClientSchema(BaseSchema):
     name: str
     email: EmailStr
     tier: TierEnum = Field(default=TierEnum.FREE)
+    roles: list[RoleTypeEnum] = Field(default_factory=list)
     credits: float = Field(default=0.0, le=1_000_000.0, ge=0.0)
     status: ClientStatusEnum = Field(default=ClientStatusEnum.ACTIVE)
     is_active: bool = Field(default=True)
     created_at: datetime | None = Field(default=None)
     updated_at: datetime | None = Field(default=None)
+
+    @field_validator("roles", mode="before")
+    @classmethod
+    def convert_roles(cls, v: Any) -> list[RoleTypeEnum]:
+        """Convert DBRole objects or strings to RoleTypeEnum."""
+        if not v:
+            return []
+
+        result = []
+        for role in v:
+            if isinstance(role, str):
+                result.append(RoleTypeEnum(role))
+            elif hasattr(role, "name"):  # DBRole object
+                result.append(RoleTypeEnum(role.name))
+            else:
+                result.append(role)
+        return result
 
 
 class GuestClientSchema(BaseSchema):
@@ -66,7 +84,7 @@ class ClientCreateSchema(BaseClientSchema):
     model_config = _custom_model_config
 
 
-class ClientSchema(ClientCreateSchema):
+class ClientSchema(BaseClientSchema):
     """Schema representing a database client."""
 
     password_hash: str
@@ -79,6 +97,7 @@ class APIUpdateSchema(BaseSchema):
         from_attributes=True,
         json_encoders={datetime: lambda v: v.isoformat() if v else None},
     )
+
     id: int | None = Field(
         default=None, description="Unique identifier of the API key."
     )
@@ -115,3 +134,37 @@ class APIKeySchema(APIUpdateSchema):
     last_used_at: datetime | None = Field(
         default=None, description="Last used date and time of the API key."
     )
+
+
+class RoleSchema(BaseSchema):
+    """Role schema."""
+
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_encoders={datetime: lambda v: v.isoformat() if v else None},
+    )
+
+    id: int | None = Field(default=None, description="Unique identifier of the role.")
+    name: RoleTypeEnum
+    description: str | None = Field(
+        default=None, description="Description of the role."
+    )
+    created_at: datetime | None = Field(
+        default=None, description="Creation date and time of the role."
+    )
+    updated_at: datetime | None = Field(
+        default=None, description="Last update date and time of the role."
+    )
+
+
+ROLES: dict[str, RoleSchema] = {
+    "admin": RoleSchema(
+        name=RoleTypeEnum.ADMIN, description="Administrator with full access"
+    ),
+    "user": RoleSchema(
+        name=RoleTypeEnum.USER, description="Regular user with standard access"
+    ),
+    "guest": RoleSchema(
+        name=RoleTypeEnum.GUEST, description="Guest user with limited access"
+    ),
+}

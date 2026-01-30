@@ -1,8 +1,8 @@
-"""[chore] Reverted back to strings instead of using DB enums
+"""[chore] Added roles table
 
-Revision ID: a76e6b62ebbc
+Revision ID: e07ca2d52ca4
 Revises:
-Create Date: 2026-01-29 01:42:38.773733
+Create Date: 2026-01-30 00:15:08.137626
 
 """
 
@@ -10,7 +10,7 @@ from typing import Sequence, Union
 
 
 # revision identifiers, used by Alembic.
-revision: str = "a76e6b62ebbc"
+revision: str = "e07ca2d52ca4"
 down_revision: Union[str, Sequence[str], None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None

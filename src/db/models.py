@@ -8,12 +8,14 @@ from typing import AsyncGenerator
 from sqlalchemy import (
     JSON,
     Boolean,
+    Column,
     DateTime,
     ForeignKey,
     Index,
     Integer,
     Numeric,
     String,
+    Table,
     func,
 )
 from sqlalchemy.ext.asyncio.session import AsyncSession
@@ -32,6 +34,15 @@ class Base(DeclarativeBase):
 # =========================================================
 # ==================== Database Models ====================
 # =========================================================
+# Association table for many-to-many relationship between clients and roles
+user_roles = Table(
+    "user_roles",
+    Base.metadata,
+    Column("client_id", ForeignKey("clients.id"), primary_key=True),
+    Column("role_id", ForeignKey("roles.id"), primary_key=True),
+)
+
+
 class DBClient(Base):
     """Data model for storing client information."""
 
@@ -67,6 +78,11 @@ class DBClient(Base):
     api_keys: Mapped[list["DBAPIKey"]] = relationship(
         back_populates="client", cascade="all, delete-orphan"
     )
+
+    # Enables Python-side navigation for roles (e.g. my_client_instance.roles)
+    # Note: This does not create a column in the 'clients' database table.
+    # Many-to-many relationship with roles (through user_roles association table)
+    roles = relationship("DBRole", secondary=user_roles, back_populates="clients")
 
     # Composite index for optimized queries
     __table_args__ = (Index("ix_clients_status_created_at", "status", "created_at"),)
@@ -132,6 +148,39 @@ class DBAPIKey(Base):
             f"{self.__class__.__name__}(id={self.id!r}, name={self.name!r}, "
             f"requests_per_minute={self.requests_per_minute!r})"
         )
+
+
+class DBRole(Base):
+    """Data model for storing user roles."""
+
+    __tablename__: str = "roles"
+
+    id: Mapped[int] = mapped_column("id", primary_key=True)
+    name: Mapped[str] = mapped_column(
+        String(50), unique=True, nullable=False
+    )  # e.g., 'admin', 'user', 'guest'
+    description: Mapped[str] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=func.now(), onupdate=func.now()
+    )
+
+    # Relationship: Enables Python-side navigation.
+    # Note: This does not create a column in the 'roles' database table.
+    # Many-to-many relationship with users (clients)
+    clients = relationship("DBClient", secondary=user_roles, back_populates="roles")
+
+    def __repr__(self) -> str:
+        """
+        Returns a string representation of the DBRole object.
+
+        Returns
+        -------
+        str
+        """
+        return f"{self.__class__.__name__}(id={self.id!r}, name={self.name!r})"
 
 
 # =========================================================

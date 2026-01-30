@@ -70,7 +70,7 @@ async def register_user(
     client_info = ClientSchema(**client.model_dump(), password_hash=password_hash)
     print(f"DEBUG: Creating client: {client_info}")
 
-    new_client = await client_repo.acreate_client(clients=[client_info])
+    new_client = await client_repo.acreate_client(client=client_info)
     if not new_client:
         raise HTTPError(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
