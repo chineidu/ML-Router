@@ -1,16 +1,17 @@
 import hashlib
 import secrets
 import string
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 from typing import Any, Callable, Coroutine
 
 from aiocache import Cache
-from fastapi import Depends, Security, status
+from fastapi import Depends, Request, Security, status
 from fastapi.security import APIKeyHeader, OAuth2PasswordBearer
 from jose import JWTError, jwt
 from passlib.context import CryptContext
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.sql import func
 
 from src import create_logger
 from src.api.core.dependencies import get_cache
@@ -252,13 +253,52 @@ def get_api_key_from_header(api_key: str | None = Security(API_KEY_HEADER)) -> s
     return api_key
 
 
+async def adeduct_credits_background(client_id: int, cost: float) -> None:
+    """
+    Background task to atomically deduct credits.
+    """
+    async for session in aget_db():  # Open session only in background
+        try:
+            # ATOMIC UPDATE: Database handles the math safely
+            stmt = (
+                update(DBClient)
+                .where(
+                    DBClient.id == client_id,
+                )
+                .values(credits=DBClient.credits - cost)
+            )
+            await session.execute(stmt)
+            await session.commit()
+        except Exception as e:
+            logger.error(f"Failed to deduct {cost} from client {client_id}: {e}")
+        break
+
+
+async def ais_credit_sufficient(db_client: DBClient, cost: Decimal) -> bool:
+    """Validate that the client has enough credits.
+
+    Raises
+    ------
+    HTTPError
+        If the client does not have enough credits.
+    """
+    if db_client.credits < cost:
+        raise HTTPError(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            details="Insufficient credits",
+        )
+    return True
+
+
 async def get_current_api_key(
+    request: Request,
     api_key: str = Depends(get_api_key_from_header),
     db: AsyncSession = Depends(aget_db),
     cache: Cache = Depends(get_cache),  # noqa: ARG001
 ) -> APIKeySchema:
     """Dependency to get the current API key."""
-    prefix_length = app_settings.API_KEY_PREFIX_LENGTH
+    custom_prefix = app_settings.API_KEY_PREFIX
+    prefix_length = len(custom_prefix) + app_settings.API_KEY_PREFIX_LENGTH
 
     if len(api_key) < prefix_length:
         raise HTTPError(
@@ -272,6 +312,7 @@ async def get_current_api_key(
     db_api_key = await api_key_repo.aget_api_key_by_prefix(key_prefix=key_prefix)
     db_client = db_api_key.client if db_api_key else None
 
+    # Validate the API key and associated client
     if not db_client or db_client.status != ClientStatusEnum.ACTIVE:
         logger.warning(f"Unauthorized access attempt with API key prefix: {key_prefix}")
         raise HTTPError(
@@ -297,13 +338,26 @@ async def get_current_api_key(
         )
 
     # Check if the API key is expired
-    if db_api_key.expires_at and db_api_key.expires_at < func.now():
+    if db_api_key.expires_at and db_api_key.expires_at < datetime.now(timezone.utc):
         logger.warning(f"Expired API key used with prefix: {key_prefix}")
         raise HTTPError(
             status_code=status.HTTP_401_UNAUTHORIZED,
             details="API key has expired",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+    # Store credit deduction info in request state (will be deducted by middleware on success)
+    if db_client:
+        # Per-endpoint cost overrides
+        path: str = request.url.path if request else ""
+        cost_map = app_config.api_config.credit_costs or {}
+        default_cost = cost_map.get("default", app_settings.CREDIT_COST_PER_REQUEST)
+        cost_value = cost_map.get(path, default_cost)
+        cost = Decimal(str(cost_value))
+
+        if await ais_credit_sufficient(db_client, cost):
+            request.state.api_key_client_id = db_client.id
+            request.state.api_key_cost = cost
 
     key_obj = api_key_repo.convert_DBAPIKey_to_schema(db_api_key)
     if not key_obj:

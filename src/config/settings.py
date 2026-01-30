@@ -26,6 +26,7 @@ class BaseConfig(BaseSettings):
     API_KEY_PREFIX_LENGTH: int = 4  # Length of the API key prefix for identification
     API_KEY_LENGTH: int = 32  # Total length of the API key
     API_KEY_PREFIX: str = "mlsk_"  # Default prefix for generated API keys
+    CREDIT_COST_PER_REQUEST: float = 1.0  # Credits deducted per API key request
 
     # ===== DATABASE =====
     POSTGRES_USER: str = "apigateway"

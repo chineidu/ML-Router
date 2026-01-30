@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import (
 from sqlalchemy.orm import selectinload
 
 from src import create_logger
-from src.db.models import DBAPIKey
+from src.db.models import DBAPIKey, DBClient
 from src.schemas.db.models import APIKeySchema
 
 logger = create_logger(__name__)
@@ -29,22 +29,26 @@ class APIKeyRepository:
         self.db = db
 
     async def aget_api_key_by_id(self, id: int) -> DBAPIKey | None:
-        """Get a api_key by its ID."""
+        """Get a api_key by its ID with eager loading of client and roles."""
         try:
-            stmt = select(DBAPIKey).where(DBAPIKey.id == id)
+            stmt = (
+                select(DBAPIKey)
+                .where(DBAPIKey.id == id)
+                .options(selectinload(DBAPIKey.client).selectinload(DBClient.roles))
+            )
             return await self.db.scalar(stmt)
         except Exception as e:
             logger.error(f"Error fetching api_key by id '{id}': {e}")
             return None
 
     async def aget_api_key_by_prefix(self, key_prefix: str) -> DBAPIKey | None:
-        """Get a api_key by its key prefix with eager loading of the client relationship."""
+        """Get a api_key by its key prefix with eager loading of client and roles."""
         try:
             stmt = (
                 select(DBAPIKey)
                 .where(DBAPIKey.key_prefix == key_prefix)
-                # Eager loading
-                .options(selectinload(DBAPIKey.client))
+                # Eager load client, then client's roles to avoid N+1 queries
+                .options(selectinload(DBAPIKey.client).selectinload(DBClient.roles))
             )
             return await self.db.scalar(stmt)
         except Exception as e:
@@ -52,13 +56,13 @@ class APIKeyRepository:
             return None
 
     async def aget_api_key_by_client_ids(self, client_ids: list[int]) -> list[DBAPIKey]:
-        """Get api_key by their client IDs with eager loading of the client relationship."""
+        """Get api_key by their client IDs with eager loading of client and roles."""
         try:
             stmt = (
                 select(DBAPIKey)
                 .where(DBAPIKey.client_id.in_(client_ids))
                 # Eager loading
-                .options(selectinload(DBAPIKey.client))
+                .options(selectinload(DBAPIKey.client).selectinload(DBClient.roles))
             )
             result = await self.db.scalars(stmt)
             return list(result.all())

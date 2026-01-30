@@ -1,6 +1,6 @@
 from typing import TYPE_CHECKING
 
-from fastapi import APIRouter, Depends, Query, Request, status
+from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src import create_logger
@@ -31,7 +31,6 @@ router = APIRouter(tags=["admin"], default_response_class=MsgSpecJSONResponse)
 
 @router.get("/admin/users", status_code=status.HTTP_200_OK)
 async def list_users(
-    request: Request,  # Required by SlowAPI  # noqa: ARG001
     limit: int = Query(
         default=20, ge=1, le=100, description="Number of users to return"
     ),
@@ -67,13 +66,12 @@ async def list_users(
 
 @router.post("/admin/users", status_code=status.HTTP_200_OK)
 async def update_tier(
-    request: Request,  # Required by SlowAPI  # noqa: ARG001
     input_data: UpdateClientSchema,
     admin: ClientSchema = Depends(get_current_admin_user),  # noqa: ARG001
     db: AsyncSession = Depends(aget_db),
     rate_limiter=Depends(get_rate_limiter),  # noqa: ANN001, ARG001
 ) -> ClientResponseSchema:
-    """Update user tier."""
+    """Update user tier and add credits."""
     # Check if name exists
     client_repo = ClientRepository(db=db)
 
@@ -90,7 +88,6 @@ async def update_tier(
         client_id=input_data.id, update_data=input_data.model_dump(exclude={"id"})
     )
 
-    # Reload the client with roles eagerly loaded to avoid greenlet error
     db_client = await client_repo.aget_client_by_id(id=input_data.id)
     if not db_client:
         raise HTTPError(

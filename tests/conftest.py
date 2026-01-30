@@ -153,7 +153,7 @@ def client(
         key_prefix="test",
         key_hash="test_hash",
         name="test_key",
-        scopes=["data:read", "data:write"],
+        scopes=["data:read", "data:write", "jobs:run"],
     )
     app.dependency_overrides[get_current_api_key] = lambda: mock_api_key
 
@@ -212,7 +212,7 @@ async def async_client(
         key_prefix="test",
         key_hash="test_hash",
         name="test_key",
-        scopes=["data:read", "data:write"],
+        scopes=["data:read", "data:write", "jobs:run"],
     )
     app.dependency_overrides[get_current_api_key] = lambda: mock_api_key
 

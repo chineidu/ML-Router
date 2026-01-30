@@ -143,6 +143,10 @@ class APIConfig:
     ratelimit: dict[str, dict[str, Any]] = field(
         metadata={"description": "Ratelimit configuration."}
     )
+    credit_costs: dict[str, float] = field(
+        default_factory=dict,
+        metadata={"description": "Per-endpoint credit cost overrides."},
+    )
 
 
 @dataclass(slots=True, kw_only=True)

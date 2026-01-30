@@ -6,6 +6,7 @@ from aiocache import Cache
 from fastapi import APIRouter, Depends, Path, Request, Response, status
 
 from src import create_logger
+from src.api.core.auth import require_scope
 from src.api.core.cache import cached
 from src.api.core.dependencies import (
     get_backend_registry,
@@ -16,9 +17,10 @@ from src.api.core.dependencies import (
 from src.api.core.exceptions import CircuitOpenError, HTTPError, ServiceUnavailableError
 from src.api.core.responses import MsgSpecJSONResponse
 from src.config import app_config
+from src.schemas.db.models import APIKeySchema
 from src.schemas.input_schema import InferenceRequest
 from src.schemas.response import InferenceResponseSchema
-from src.schemas.types import ModelTypeEnum
+from src.schemas.types import WRITE_SCOPES, ModelTypeEnum
 from src.utilities.utils import aretriable_request, update_metrics_background
 
 if TYPE_CHECKING:
@@ -44,6 +46,7 @@ async def make_prediction(
     backend_registry: "BackendRegistry" = Depends(get_backend_registry),
     request_id: str = Depends(get_request_id),
     cache: Cache = Depends(get_cache),  # Required by caching decorator  # noqa: ARG001
+    api_key: APIKeySchema = Depends(require_scope(*WRITE_SCOPES)),  # noqa: ANN001, ARG001
 ) -> InferenceResponseSchema:
     """
     Perform model inference and return a prediction with idempotency and caching.

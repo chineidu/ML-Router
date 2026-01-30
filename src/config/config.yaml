@@ -88,6 +88,10 @@ config:
           },
       }
 
+    credit_costs:
+      "/predict/ner": 2.0
+      "/predict/sentiment": 1.5
+
   database_config:
     pool_size: 30
     max_overflow: 10 # Allow N extra connections

@@ -338,6 +338,59 @@ class ClientRepository:
             await self.db.rollback()
             raise
 
+    async def aupdate_credits(self, client_id: int, value: float) -> DBClient | None:
+        """Update a api_key in the database in a single round trip.
+
+        Note
+        ----
+        - Allowed fields: credits
+        """
+
+        update_data: dict[str, Any] = {"credits": value}
+
+        # Fetch the existing api_key
+        stmt = (
+            select(DBClient)
+            .where(DBClient.id == client_id)
+            # Lock the row (prevents race conditions)
+            .with_for_update()
+        )
+        result = await self.db.execute(stmt)
+        db_client: DBClient | None = result.scalar_one_or_none()
+
+        if not db_client:
+            logger.warning(f"Client {client_id} not found")
+            return None
+
+        # Update the data
+        ALLOWED_FIELDS = {"credits"}
+        has_changes = False
+
+        for field, value in update_data.items():
+            if field not in ALLOWED_FIELDS:
+                logger.warning(f"Attempt to update disallowed field '{field}")
+                continue
+
+            # If the current field value is different, update it
+            current_value = getattr(db_client, field)
+            if current_value != value:
+                setattr(db_client, field, value)
+                has_changes = True
+
+        if not has_changes:
+            logger.info(f"No changes detected for client {client_id}. Skipping update.")
+            return db_client
+
+        try:
+            await self.db.commit()
+            logger.info(f"Successfully updated client {client_id}")
+            return db_client
+
+        except Exception as e:
+            logger.error(f"Error updating client {client_id}: {e}")
+            await self.db.rollback()
+            raise
+
     async def aassign_role_to_client(self, client_id: int, role: RoleTypeEnum) -> None:
         """Assign a role to a client via the user_roles association table.
 

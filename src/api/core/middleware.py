@@ -1,4 +1,4 @@
-"""Custom middleware for request ID assignment, logging, and error handling."""
+"""Custom middleware for request ID assignment, logging, error handling, and credit deduction."""
 
 import time
 from collections.abc import Awaitable, Callable
@@ -6,9 +6,11 @@ from typing import Any
 from uuid import uuid4
 
 from fastapi import HTTPException, Request, Response, status
+from starlette.background import BackgroundTask
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from src import create_logger
+from src.api.core.auth import adeduct_credits_background
 from src.api.core.exceptions import (
     CircuitOpenError,
     HTTPError,
@@ -181,16 +183,49 @@ class ErrorHandlingMiddleware(BaseHTTPMiddleware):
             )
 
 
+class CreditDeductionMiddleware(BaseHTTPMiddleware):
+    """Middleware to deduct credits from API key clients on successful responses.
+
+    Only deducts credits if the response status code is < 400 (successful).
+    This prevents charging users for failed requests.
+    """
+
+    async def dispatch(
+        self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
+        """Deduct credits from client after successful response."""
+        response: Response = await call_next(request)
+
+        # Quick check to see if we need to deduct credits
+        if response.status_code < 400 and hasattr(request.state, "api_key_client_id"):
+            client_id = request.state.api_key_client_id
+            cost = request.state.api_key_cost
+
+            client_id = request.state.api_key_client_id
+            cost = request.state.api_key_cost
+
+            # Add the task to the response
+            # FastAPI/Starlette will execute this AFTER sending bytes to the client
+            response.background = BackgroundTask(
+                adeduct_credits_background, client_id=client_id, cost=cost
+            )
+
+        return response
+
+
 # ===== Define the stack of middleware =====
 # REQUEST FLOW:
-# RequestIDMiddleware (Outermost) -> LoggingMiddleware -> ErrorHandlingMiddleware -> [Endpoint]
+# RequestIDMiddleware (Outermost) -> LoggingMiddleware
+# -> ErrorHandlingMiddleware -> CreditDeductionMiddleware -> [Endpoint]
 #
 # RESPONSE FLOW:
-# [Endpoint] -> ErrorHandlingMiddleware -> LoggingMiddleware -> RequestIDMiddleware (Outermost)
+# [Endpoint] -> CreditDeductionMiddleware -> ErrorHandlingMiddleware
+# -> LoggingMiddleware -> RequestIDMiddleware (Outermost)
 MIDDLEWARE_STACK: list[type[BaseHTTPMiddleware]] = [
     RequestIDMiddleware,  # 1. Touches request first
     LoggingMiddleware,  # 2. Touches request second
-    ErrorHandlingMiddleware,  # 3. Touches request third (closest to route)
+    ErrorHandlingMiddleware,  # 3. Touches request third
+    CreditDeductionMiddleware,  # 4. Touches request fourth (closest to route, deducts on response)
 ]
 # Reverse the middleware stack to maintain the correct order! (LIFO: Last In, First Out for requests)
 MIDDLEWARE_STACK.reverse()
