@@ -24,7 +24,15 @@ parser.add_argument(
     "--model",
     type=str,
     required=True,
-    choices=["sentiment", "classification", "regression", "ner"],
+    choices=[
+        "sentiment",
+        "classification",
+        "regression",
+        "ner",
+        "anomaly_detection",
+        "clustering",
+        "recommendation",
+    ],
     help="Type of model to simulate",
 )
 parser.add_argument("--port", type=int, default=8001, help="Port to run the backend on")

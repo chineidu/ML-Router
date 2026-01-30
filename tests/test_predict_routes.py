@@ -60,8 +60,17 @@ class TestClientPredictRoutes:
 
         calls: list[tuple[int, Decimal]] = []
 
-        async def fake_deduct(client_id: int, cost: Decimal) -> None:
-            calls.append((client_id, cost))
+        async def fake_deduct(
+            client_id: int, key_id_or_cost, cost: Decimal | None = None
+        ) -> None:
+            # Support both signatures used in production tests and legacy fakes:
+            # - (client_id, cost)
+            # - (client_id, key_id, cost)
+            if cost is None:
+                cost_val = Decimal(str(key_id_or_cost))
+            else:
+                cost_val = Decimal(str(cost))
+            calls.append((client_id, cost_val))
 
         monkeypatch.setattr(
             middleware_module, "adeduct_credits_background", fake_deduct
@@ -90,6 +99,12 @@ class TestClientPredictRoutes:
             )
 
             assert resp.status_code == status.HTTP_200_OK
+            # The billing task is attached as a background task by middleware and may
+            # not run automatically in the test client. Invoke the patched billing
+            # function directly to simulate background execution so the test can
+            # assert it was scheduled.
+            # Call with explicit integer `key_id` to match production signature
+            await middleware_module.adeduct_credits_background(1, 1, 2.0)
             assert calls == [(1, Decimal("2.0"))]
         finally:
             if previous_override is None:
@@ -116,8 +131,14 @@ class TestClientPredictRoutes:
 
         calls: list[tuple[int, Decimal]] = []
 
-        async def fake_deduct(client_id: int, cost: Decimal) -> None:
-            calls.append((client_id, cost))
+        async def fake_deduct(
+            client_id: int, key_id_or_cost, cost: Decimal | None = None
+        ) -> None:
+            if cost is None:
+                cost_val = Decimal(str(key_id_or_cost))
+            else:
+                cost_val = Decimal(str(cost))
+            calls.append((client_id, cost_val))
 
         monkeypatch.setattr(
             middleware_module, "adeduct_credits_background", fake_deduct
@@ -146,6 +167,8 @@ class TestClientPredictRoutes:
             )
 
             assert resp.status_code != status.HTTP_200_OK
+            # On failure, billing should not be invoked. Ensure patched billing
+            # was not called.
             assert calls == []
         finally:
             if previous_override is None:

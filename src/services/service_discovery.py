@@ -485,6 +485,15 @@ regression_semaphore_value: int = (
 ner_semaphore_value: int = app_config.bulkhead_config.prediction_semaphore_config.get(
     "ner", 10
 )
+anomaly_semaphore_value: int = (
+    app_config.bulkhead_config.prediction_semaphore_config.get("anomaly_detection", 10)
+)
+clustering_semaphore_value: int = (
+    app_config.bulkhead_config.prediction_semaphore_config.get("clustering", 10)
+)
+recommendation_semaphore_value: int = (
+    app_config.bulkhead_config.prediction_semaphore_config.get("recommendation", 10)
+)
 
 
 class BackendRegistry:
@@ -505,6 +514,9 @@ class BackendRegistry:
             ModelTypeEnum.CLASSIFICATION: "classify",
             ModelTypeEnum.REGRESSION: "predict",
             ModelTypeEnum.NER: "extract-ner",
+            ModelTypeEnum.ANOMALY_DETECTION: "detect-anomaly",
+            ModelTypeEnum.CLUSTERING: "cluster",
+            ModelTypeEnum.RECOMMENDATION: "recommend",
         }
         self.prediction_semaphore = {
             # Update as needed
@@ -514,6 +526,11 @@ class BackendRegistry:
             ),
             ModelTypeEnum.REGRESSION: asyncio.Semaphore(regression_semaphore_value),
             ModelTypeEnum.NER: asyncio.Semaphore(ner_semaphore_value),
+            ModelTypeEnum.ANOMALY_DETECTION: asyncio.Semaphore(anomaly_semaphore_value),
+            ModelTypeEnum.CLUSTERING: asyncio.Semaphore(clustering_semaphore_value),
+            ModelTypeEnum.RECOMMENDATION: asyncio.Semaphore(
+                recommendation_semaphore_value
+            ),
         }
         logger.info("Backend registry initialized.")
 

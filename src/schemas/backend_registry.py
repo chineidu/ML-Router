@@ -87,7 +87,6 @@ class ServiceInstance:
         if persist:
             # Strip runtime-only fields for persistence
             data.pop("status", None)
-            data.pop("last_heartbeat", None)
             data.pop("runtime_metrics", None)
             data.pop("circuit_breaker", None)
 

@@ -172,11 +172,87 @@ class MockNERModel:
         }
 
 
+# ===================== NEW MOCK MODELS =====================
+class MockAnomalyDetectionModel:
+    """Simulates an anomaly detection model"""
+
+    def __init__(self, latency_ms: int = 120) -> None:
+        self.latency_ms = latency_ms
+        self.model_name = "anomaly-detector"
+        self.version = "v1.0.0"
+
+    async def apredict(self, features: list[float]) -> dict[str, Any]:
+        """Simulate anomaly detection prediction"""
+        await asyncio.sleep(self.latency_ms / 1000)
+        is_anomaly = random.choice([True, False])
+        score = random.uniform(0, 1)
+        return {
+            "prediction": {
+                "is_anomaly": is_anomaly,
+                "score": round(score, 4),
+                "features": features,
+            },
+            "confidence": round(random.uniform(0.7, 0.98), 4),
+            "model_version": self.version,
+            "model_name": self.model_name,
+        }
+
+
+class MockClusteringModel:
+    """Simulates a clustering model"""
+
+    def __init__(self, latency_ms: int = 110) -> None:
+        self.latency_ms = latency_ms
+        self.model_name = "clustering-model"
+        self.version = "v1.0.0"
+        self.n_clusters = 3
+
+    async def apredict(self, features: list[float]) -> dict[str, Any]:
+        """Simulate clustering prediction"""
+        await asyncio.sleep(self.latency_ms / 1000)
+        cluster = random.randint(0, self.n_clusters - 1)
+        return {
+            "prediction": {
+                "cluster": cluster,
+                "features": features,
+            },
+            "confidence": round(random.uniform(0.6, 0.95), 4),
+            "model_version": self.version,
+            "model_name": self.model_name,
+        }
+
+
+class MockRecommendationModel:
+    """Simulates a recommendation model"""
+
+    def __init__(self, latency_ms: int = 130) -> None:
+        self.latency_ms = latency_ms
+        self.model_name = "recommendation-engine"
+        self.version = "v1.0.0"
+
+    async def apredict(self, user_id: str) -> dict[str, Any]:
+        """Simulate recommendation prediction"""
+        await asyncio.sleep(self.latency_ms / 1000)
+        recommendations = [f"item_{random.randint(1, 100)}" for _ in range(5)]
+        return {
+            "prediction": {
+                "user_id": user_id,
+                "recommendations": recommendations,
+            },
+            "confidence": round(random.uniform(0.7, 0.99), 4),
+            "model_version": self.version,
+            "model_name": self.model_name,
+        }
+
+
 MODEL_CLASSES = {
     "sentiment": MockSentimentModel,
     "classification": MockClassificationModel,
     "regression": MockRegressionModel,
     "ner": MockNERModel,
+    "anomaly_detection": MockAnomalyDetectionModel,
+    "clustering": MockClusteringModel,
+    "recommendation": MockRecommendationModel,
 }
 
 # ============================================================================
@@ -192,14 +268,8 @@ def create_backend_app(model_type: str, latency_ms: int) -> FastAPI:
     )
 
     # Initialize appropriate model
-    if model_type == "sentiment":
-        model = MODEL_CLASSES["sentiment"](latency_ms)
-    elif model_type == "classification":
-        model = MODEL_CLASSES["classification"](latency_ms)
-    elif model_type == "regression":
-        model = MODEL_CLASSES["regression"](latency_ms)
-    elif model_type == "ner":
-        model = MODEL_CLASSES["ner"](latency_ms)
+    if model_type in MODEL_CLASSES:
+        model = MODEL_CLASSES[model_type](latency_ms)
     else:
         raise ValueError(f"Unknown model type: '{model_type}'")
 
@@ -209,6 +279,9 @@ def create_backend_app(model_type: str, latency_ms: int) -> FastAPI:
         return {"status": "healthy", "model": model.model_name}
 
     # Simulate different prediction endpoints
+    @app.post("/cluster", response_model=PredictionResponseSchema)
+    @app.post("/detect-anomaly", response_model=PredictionResponseSchema)
+    @app.post("/recommend", response_model=PredictionResponseSchema)
     @app.post("/extract-ner", response_model=PredictionResponseSchema)
     @app.post("/classify", response_model=PredictionResponseSchema)
     @app.post("/predict", response_model=PredictionResponseSchema)
@@ -218,6 +291,7 @@ def create_backend_app(model_type: str, latency_ms: int) -> FastAPI:
         data = input_data.input_data
 
         # Route to appropriate prediction method
+
         if model_type == "sentiment":
             result = await model.apredict(data.get("text", ""))
         elif model_type == "classification":
@@ -226,6 +300,12 @@ def create_backend_app(model_type: str, latency_ms: int) -> FastAPI:
             result = await model.apredict(data.get("features", []))
         elif model_type == "ner":
             result = await model.apredict(data.get("text", ""))
+        elif model_type == "anomaly_detection":
+            result = await model.apredict(data.get("features", []))
+        elif model_type == "clustering":
+            result = await model.apredict(data.get("features", []))
+        elif model_type == "recommendation":
+            result = await model.apredict(data.get("user_id", ""))
         else:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,

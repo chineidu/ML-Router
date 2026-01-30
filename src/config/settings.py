@@ -125,7 +125,7 @@ class SandboxConfig(BaseConfig):
     """Sandbox environment settings."""
 
     model_config = SettingsConfigDict(
-        env_file=str(Path(".env.sandbox").absolute()),
+        env_file=str(Path(".env").absolute()),
         env_file_encoding="utf-8",
         from_attributes=True,
         populate_by_name=True,
@@ -139,11 +139,29 @@ class SandboxConfig(BaseConfig):
     DEBUG: bool = False
 
 
+class StagingConfig(BaseConfig):
+    """Staging environment settings."""
+
+    model_config = SettingsConfigDict(
+        env_file=str(Path(".env").absolute()),
+        env_file_encoding="utf-8",
+        from_attributes=True,
+        populate_by_name=True,
+        str_strip_whitespace=True,
+    )
+
+    ENV: EnvironmentEnum = EnvironmentEnum.STAGING
+    PROTOCOL: ProtocolEnum = ProtocolEnum.HTTPS
+    WORKERS: int = 2
+    RELOAD: bool = False
+    DEBUG: bool = False
+
+
 class ProductionConfig(BaseConfig):
     """Production environment settings."""
 
     model_config = SettingsConfigDict(
-        env_file=str(Path(".env.prod").absolute()),
+        env_file=str(Path(".env").absolute()),
         env_file_encoding="utf-8",
         from_attributes=True,
         populate_by_name=True,
@@ -157,7 +175,7 @@ class ProductionConfig(BaseConfig):
     DEBUG: bool = False
 
 
-type ConfigType = DevelopmentConfig | ProductionConfig | SandboxConfig
+type ConfigType = DevelopmentConfig | ProductionConfig | SandboxConfig | StagingConfig
 
 
 def refresh_settings() -> ConfigType:
@@ -181,8 +199,7 @@ def refresh_settings() -> ConfigType:
         EnvironmentEnum.DEVELOPMENT: DevelopmentConfig,
         EnvironmentEnum.PRODUCTION: ProductionConfig,
         EnvironmentEnum.SANDBOX: SandboxConfig,
-        # Map both SANDBOX and STAGING to SandboxConfig
-        EnvironmentEnum.STAGING: SandboxConfig,
+        EnvironmentEnum.STAGING: StagingConfig,
     }
     config_cls: type[ConfigType] = configs.get(env, DevelopmentConfig)
 

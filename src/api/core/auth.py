@@ -10,7 +10,6 @@ from fastapi import Depends, Request, Security, status
 from fastapi.security import APIKeyHeader, OAuth2PasswordBearer
 from jose import JWTError, jwt
 from passlib.context import CryptContext
-from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src import create_logger
@@ -200,17 +199,12 @@ async def get_current_user_or_guest(
     return client_schema
 
 
-async def get_guest_client() -> GuestClientSchema:
-    """Dependency to get a guest/anonymous client with limited access."""
-    return GuestClientSchema()
-
-
 async def authenticate_user(
-    db: AsyncSession, name: str, password: str
+    db: AsyncSession, username: str, password: str
 ) -> DBClient | None:
-    """Authenticate user with name and password."""
+    """Authenticate user with username and password."""
     client_repo = ClientRepository(db)
-    db_client = await client_repo.aget_client_by_name(name)
+    db_client = await client_repo.aget_client_by_name(username)
     if not db_client:
         return None
 
@@ -253,28 +247,7 @@ def get_api_key_from_header(api_key: str | None = Security(API_KEY_HEADER)) -> s
     return api_key
 
 
-async def adeduct_credits_background(client_id: int, cost: float) -> None:
-    """
-    Background task to atomically deduct credits.
-    """
-    async for session in aget_db():  # Open session only in background
-        try:
-            # ATOMIC UPDATE: Database handles the math safely
-            stmt = (
-                update(DBClient)
-                .where(
-                    DBClient.id == client_id,
-                )
-                .values(credits=DBClient.credits - cost)
-            )
-            await session.execute(stmt)
-            await session.commit()
-        except Exception as e:
-            logger.error(f"Failed to deduct {cost} from client {client_id}: {e}")
-        break
-
-
-async def ais_credit_sufficient(db_client: DBClient, cost: Decimal) -> bool:
+async def avalidate_credit_balance(db_client: DBClient, cost: Decimal) -> bool:
     """Validate that the client has enough credits.
 
     Raises
@@ -355,64 +328,21 @@ async def get_current_api_key(
         cost_value = cost_map.get(path, default_cost)
         cost = Decimal(str(cost_value))
 
-        if await ais_credit_sufficient(db_client, cost):
+        if await avalidate_credit_balance(db_client, cost):
+            # Required by BillingMiddleware to deduct credits after successful request
             request.state.api_key_client_id = db_client.id
+            request.state.api_key_id = db_api_key.id
             request.state.api_key_cost = cost
 
     key_obj = api_key_repo.convert_DBAPIKey_to_schema(db_api_key)
     if not key_obj:
-        logger.error(
-            f"Failed to convert DBApiKey to ApiKeySchema for prefix: {key_prefix}"
-        )
+        logger.error(f"Failed to convert DB object to schema for prefix: {key_prefix}")
         raise HTTPError(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             details="Internal server error",
         )
 
     return key_obj
-
-
-async def get_current_client(
-    api_key: APIKeySchema = Depends(get_current_api_key),
-    db: AsyncSession = Depends(aget_db),
-) -> BaseClientSchema:
-    """Dependency to get the current client associated with the API key."""
-    if not api_key.client_id:
-        logger.error(f"API key ID {api_key.id} has no associated client_id")
-        raise HTTPError(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            details="Client not found",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-    client_repo = ClientRepository(db)
-    db_client = await client_repo.aget_client_by_id(api_key.client_id)
-
-    if not db_client:
-        logger.error(f"Client not found for API key ID: {api_key.id}")
-        raise HTTPError(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            details="Client not found",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-    client_obj = client_repo.convert_DBClient_to_schema(db_client)
-    if not client_obj:
-        logger.error(
-            f"Failed to convert DBClient to ClientSchema for client ID: {api_key.client_id}"
-        )
-        raise HTTPError(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            details="Internal server error",
-        )
-    if client_obj.status != ClientStatusEnum.ACTIVE:
-        logger.warning(f"Inactive client access attempt: Client ID {client_obj.id}")
-        raise HTTPError(
-            status_code=status.HTTP_403_FORBIDDEN,
-            details=f"Client is {client_obj.status.value.lower()}",
-        )
-
-    return client_obj
 
 
 # =========== Scope-based Authentication ===========
@@ -451,7 +381,7 @@ def require_scope(*required_scopes: str) -> Callable[..., Coroutine[Any, Any, No
     ) -> None:
         if not all(scope in api_key.scopes for scope in required_scopes):
             logger.warning(
-                f"API key ID {api_key.id} missing required scopes: {required_scopes}"
+                f"API key {api_key.key_prefix} missing required scopes: {required_scopes}"
             )
             raise HTTPError(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -493,7 +423,7 @@ def require_any_scope(
     ) -> None:
         if not any(scope in api_key.scopes for scope in required_scopes):
             logger.warning(
-                f"API key ID {api_key.id} has insufficient required scopes: {required_scopes}"
+                f"API key {api_key.key_prefix} has insufficient required scopes: {required_scopes}"
             )
             raise HTTPError(
                 status_code=status.HTTP_403_FORBIDDEN,

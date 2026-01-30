@@ -69,10 +69,10 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '2'
+          cpus: "2"
           memory: 2G
         reservations:
-          cpus: '1'
+          cpus: "1"
           memory: 512M
     env_file:
       - .env
@@ -88,8 +88,8 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
 
     environment:
-    # Override database host for Docker networking
-    # RABBITMQ_HOST: local-rabbitmq
+      # Override database host for Docker networking
+      # RABBITMQ_HOST: local-rabbitmq
       POSTGRES_HOST: database
       REDIS_HOST: redis
     # AWS_S3_HOST: minio
@@ -169,7 +169,7 @@ services:
       python -m src.mock.app
       --model regression --port 8002 --latency 50
     ports:
-      - "8007:8002"
+      - "8003:8002"
     env_file:
       - .env
     volumes:
@@ -197,7 +197,7 @@ services:
       python -m src.mock.app
       --model classification --port 8003 --latency 45
     ports:
-      - "8003:8003"
+      - "8004:8003"
     env_file:
       - .env
     volumes:
@@ -223,7 +223,7 @@ services:
       python -m src.mock.app
       --model classification --port 8003 --latency 45
     ports:
-      - "8004:8003" # Map host port 8004 to container port 8003
+      - "8005:8003" # Map host port 8003 to container port 8003
     env_file:
       - .env
     volumes:
@@ -250,9 +250,59 @@ services:
       # We map container port 8005 to host port 8005.
     command: >
       python -m src.mock.app
-      --model ner --port 8005 --latency 300
+      --model ner --port 8004 --latency 300
     ports:
-      - "8005:8005" # Map host port 8005 to container port 8005
+      - "8006:8004" # Map host port 8004 to container port 8006
+    env_file:
+      - .env
+    volumes:
+      - ./src:/app/src:ro
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python3",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8004/health')",
+        ]
+      interval: 15s
+      timeout: 3s
+      retries: 5
+  ner_model_2:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: >
+      python -m src.mock.app
+      --model ner --port 8004 --latency 300
+    ports:
+      - "8007:8004"
+    env_file:
+      - .env
+    volumes:
+      - ./src:/app/src:ro
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python3",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8004/health')",
+        ]
+      interval: 15s
+      timeout: 3s
+      retries: 5
+  anomaly_model_1:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: >
+      python -m src.mock.app
+      --model anomaly_detection --port 8005 --latency 115
+    ports:
+      - "8008:8005"
     env_file:
       - .env
     volumes:
@@ -269,15 +319,16 @@ services:
       interval: 15s
       timeout: 3s
       retries: 5
-  ner_model_2:
+
+  clustering_model_1:
     build:
       context: .
       dockerfile: Dockerfile
     command: >
       python -m src.mock.app
-      --model ner --port 8005 --latency 300
+      --model clustering --port 8006 --latency 110
     ports:
-      - "8006:8005"
+      - "8009:8006"
     env_file:
       - .env
     volumes:
@@ -289,7 +340,33 @@ services:
           "CMD",
           "python3",
           "-c",
-          "import urllib.request; urllib.request.urlopen('http://localhost:8005/health')",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8006/health')",
+        ]
+      interval: 15s
+      timeout: 3s
+      retries: 5
+
+  recommendation_model_1:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: >
+      python -m src.mock.app
+      --model recommendation --port 8007 --latency 250
+    ports:
+      - "8010:8007"
+    env_file:
+      - .env
+    volumes:
+      - ./src:/app/src:ro
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python3",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8007/health')",
         ]
       interval: 15s
       timeout: 3s

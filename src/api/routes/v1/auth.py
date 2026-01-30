@@ -116,7 +116,7 @@ async def login_for_access_token(
 
     client: DBClient | None = await authenticate_user(
         db=db,
-        name=form_data.username,  # form requires 'username' field
+        username=form_data.username,  # form requires 'username' field
         password=form_data.password,
     )
     if not client:

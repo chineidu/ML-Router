@@ -8,7 +8,7 @@ from datetime import datetime
 from typing import Any
 
 from dateutil.parser import parse  # Very fast, handles ISO formats well
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import (
 from sqlalchemy.orm import selectinload
 
 from src import create_logger
-from src.db.models import DBAPIKey, DBClient
+from src.db.models import DBAPIKey, DBClient, aget_db
 from src.schemas.db.models import APIKeySchema
 
 logger = create_logger(__name__)
@@ -261,3 +261,22 @@ class APIKeyRepository:
         except Exception as e:
             logger.error(f"Error converting DBAPIKey to ApiKeySchema: {e}")
             return None
+
+
+# ----- Custom functions -----
+async def aupdate_last_used_at(key_id: int) -> None:
+    """Update the last_used_at timestamp for an API key to the current time."""
+
+    async for session in aget_db():
+        try:
+            stmt = (
+                update(DBAPIKey)
+                .where(DBAPIKey.id == key_id)
+                .values(last_used_at=func.now())
+            )
+            await session.execute(stmt)
+            await session.commit()
+            logger.info(f"Updated last_used_at for key {key_id}")
+        except Exception as e:
+            logger.error(f"Failed to update timestamp for key {key_id}: {e}")
+        break

@@ -23,10 +23,10 @@ if TYPE_CHECKING:
 
 logger = create_logger(name=__name__)
 # JSON encoder
-msgspec_encoder = msgspec.json.Encoder()
+MSGSPEC_ENCODER = msgspec.json.Encoder()
 
 # JSON decoder
-msgspec_decoder = msgspec.json.Decoder()
+MSGSPEC_DECODER = msgspec.json.Decoder()
 
 
 def sort_dict(data: dict[str, Any]) -> dict[str, Any]:
@@ -60,7 +60,7 @@ def generate_idempotency_key(
         data = {"payload": payload}
 
     # Serialize the payload using msgspec for consistent hashing
-    serialized_payload = msgspec_encoder.encode(sort_dict(data))
+    serialized_payload = MSGSPEC_ENCODER.encode(sort_dict(data))
     hasher.update(serialized_payload)
 
     return hasher.hexdigest()

@@ -15,7 +15,7 @@ from fastapi.encoders import jsonable_encoder
 
 from src import create_logger
 from src.config import app_settings
-from src.utilities.utils import msgspec_encoder, sort_dict
+from src.utilities.utils import MSGSPEC_ENCODER, sort_dict
 
 logger = create_logger(name=__name__)
 type CacheDecorator = Callable[..., Callable[..., Coroutine[Any, Any, Any]]]
@@ -68,9 +68,9 @@ def cached(
 
     Parameters
     ----------
-        ttl: Time to live in seconds (default 5 minutes)
-        key_prefix: Prefix for cache key (useful for namespacing)
-        payload_key: Optional key in request body to include in cache key generation
+    ttl: Time to live in seconds (default 5 minutes)
+    key_prefix: Prefix for cache key (useful for namespacing)
+    payload_key: Optional key in request body to include in cache key generation
 
     Usage
     -----
@@ -183,11 +183,11 @@ def _generate_cache_key(
         or a prefixed MD5 hash (e.g., 'user_cache:abcdef1234567890').
     """
     # Create a deterministic string from params
-    params_str: str = msgspec_encoder.encode(sort_dict(params)).decode()
+    params_str: str = MSGSPEC_ENCODER.encode(sort_dict(params)).decode()
     key_content: str = f"{path}:{params_str}"
 
     if payload:
-        serialized_payload = msgspec_encoder.encode(sort_dict(payload)).decode()
+        serialized_payload = MSGSPEC_ENCODER.encode(sort_dict(payload)).decode()
         key_content += f":{serialized_payload}"
 
     # Hash for shorter keys
@@ -204,10 +204,10 @@ async def invalidate_cache(cache: Cache, pattern: str | None = None) -> None:
 
     Parameters
     ----------
-        cache: Cache
-            Cache instance
-        pattern: str | None
-            Pattern to match keys (None = clear all)
+    cache: Cache
+        Cache instance
+    pattern: str | None
+        Pattern to match keys (None = clear all)
 
     Returns
     -------

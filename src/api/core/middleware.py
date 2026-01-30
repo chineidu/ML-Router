@@ -10,7 +10,6 @@ from starlette.background import BackgroundTask
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from src import create_logger
-from src.api.core.auth import adeduct_credits_background
 from src.api.core.exceptions import (
     CircuitOpenError,
     HTTPError,
@@ -20,8 +19,10 @@ from src.api.core.exceptions import (
     UnexpectedError,
 )
 from src.api.core.responses import MsgSpecJSONResponse
+from src.config import app_settings
 from src.schemas.types import ErrorCodeEnum
-from src.utilities.utils import msgspec_encoder
+from src.services.billing import adeduct_credits_background
+from src.utilities.utils import MSGSPEC_ENCODER
 
 logger = create_logger(name=__name__)
 
@@ -75,7 +76,7 @@ class LoggingMiddleware(BaseHTTPMiddleware):
         }
 
         # Use msgspec for optimized serialization
-        logger.info(msgspec_encoder.encode(log).decode("utf-8"))
+        logger.info(MSGSPEC_ENCODER.encode(log).decode("utf-8"))
 
         return response
 
@@ -92,80 +93,17 @@ class ErrorHandlingMiddleware(BaseHTTPMiddleware):
             return response
 
         except (HTTPError, HTTPException) as exc:
-            return MsgSpecJSONResponse(
-                status_code=exc.status_code,
-                content={
-                    "status": "error",
-                    "error": {
-                        "message": exc.message
-                        if hasattr(exc, "message")
-                        else (exc.detail if hasattr(exc, "detail") else "HTTP error"),
-                        "code": ErrorCodeEnum.HTTP_ERROR,
-                    },
-                    "request_id": getattr(request.state, "request_id", "N/A"),
-                    "path": str(request.url.path),
-                },
-                headers=getattr(exc, "headers", None),
-            )
-
+            return self._create_error_response(exc, ErrorCodeEnum.HTTP_ERROR, request)
         except UnauthorizedError as exc:
-            return MsgSpecJSONResponse(
-                status_code=exc.status_code,
-                content={
-                    "status": "error",
-                    "error": {"message": exc.message, "code": exc.error_code},
-                    "request_id": getattr(request.state, "request_id", "N/A"),
-                    "path": str(request.url.path),
-                },
-                headers=getattr(exc, "headers", None),
-            )
-
+            return self._create_error_response(exc, exc.error_code, request)
         except CircuitOpenError as exc:
-            return MsgSpecJSONResponse(
-                status_code=exc.status_code,
-                content={
-                    "status": "error",
-                    "error": {"message": exc.message, "code": exc.error_code},
-                    "request_id": getattr(request.state, "request_id", "N/A"),
-                    "path": str(request.url.path),
-                },
-                headers=getattr(exc, "headers", None),
-            )
+            return self._create_error_response(exc, exc.error_code, request)
         except RateLimitError as exc:
-            return MsgSpecJSONResponse(
-                status_code=exc.status_code,
-                content={
-                    "status": "error",
-                    "error": {"message": exc.message, "code": exc.error_code},
-                    "request_id": getattr(request.state, "request_id", "N/A"),
-                    "path": str(request.url.path),
-                },
-                headers=getattr(exc, "headers", None),
-            )
+            return self._create_error_response(exc, exc.error_code, request)
         except ServiceUnavailableError as exc:
-            return MsgSpecJSONResponse(
-                status_code=exc.status_code,
-                content={
-                    "status": "error",
-                    "error": {"message": exc.message, "code": exc.error_code},
-                    "request_id": getattr(request.state, "request_id", "N/A"),
-                    "path": str(request.url.path),
-                },
-                headers=getattr(exc, "headers", None),
-            )
-
+            return self._create_error_response(exc, exc.error_code, request)
         except UnexpectedError as exc:
-            return MsgSpecJSONResponse(
-                status_code=exc.status_code,
-                content={
-                    "status": "error",
-                    "error": {"message": exc.message, "code": exc.error_code},
-                    "request_id": getattr(request.state, "request_id", "N/A"),
-                    "path": str(request.url.path),
-                },
-                headers=getattr(exc, "headers", None),
-            )
-
+            return self._create_error_response(exc, exc.error_code, request)
         except Exception as exc:
             logger.exception(f"Unhandled exception in middleware: {exc}")
             return MsgSpecJSONResponse(
@@ -182,35 +120,98 @@ class ErrorHandlingMiddleware(BaseHTTPMiddleware):
                 headers=getattr(exc, "headers", None),
             )
 
+    def _create_error_response(
+        self, exc: Any, code: str, request: Request
+    ) -> MsgSpecJSONResponse:
+        """Helper to reduce code duplication in exception handling."""
+        msg = getattr(exc, "message", None) or getattr(exc, "detail", "HTTP error")
+        return MsgSpecJSONResponse(
+            status_code=exc.status_code,
+            content={
+                "status": "error",
+                "error": {"message": msg, "code": code},
+                "request_id": getattr(request.state, "request_id", "N/A"),
+                "path": str(request.url.path),
+            },
+            headers=getattr(exc, "headers", None),
+        )
 
-class CreditDeductionMiddleware(BaseHTTPMiddleware):
-    """Middleware to deduct credits from API key clients on successful responses.
 
-    Only deducts credits if the response status code is < 400 (successful).
-    This prevents charging users for failed requests.
+class BillingMiddleware(BaseHTTPMiddleware):
+    """
+    Middleware to handle usage recording and billing.
+    Crucial for handling requests that hit the Cache (which skip the route handler).
     """
 
     async def dispatch(
         self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
     ) -> Response:
-        """Deduct credits from client after successful response."""
-        response: Response = await call_next(request)
+        """Dispatch the request and attach billing background task if applicable."""
+        # Execute the request
+        response = await call_next(request)
 
-        # Quick check to see if we need to deduct credits
-        if response.status_code < 400 and hasattr(request.state, "api_key_client_id"):
-            client_id = request.state.api_key_client_id
-            cost = request.state.api_key_cost
+        # Check conditions: Success (200 OK) AND User Identity Found in State
+        if not self._should_bill(request, response):
+            return response
 
-            client_id = request.state.api_key_client_id
-            cost = request.state.api_key_cost
+        # Extract billing info from request state
+        billing_info = self._extract_billing_info(request)
+        if not billing_info:
+            return response
 
-            # Add the task to the response
-            # FastAPI/Starlette will execute this AFTER sending bytes to the client
-            response.background = BackgroundTask(
-                adeduct_credits_background, client_id=client_id, cost=cost
-            )
-
+        # Attach billing background task to response
+        self._attach_billing_task(response, billing_info)
         return response
+
+    def _should_bill(self, request: Request, response: Response) -> bool:
+        """Determine if billing should be applied based on request and response."""
+        # Bill only for successful requests with user identity
+        return (response.status_code == status.HTTP_200_OK) and hasattr(
+            request.state, "api_key_client_id"
+        )
+
+    def _extract_billing_info(self, request: Request) -> dict[str, Any] | None:
+        """Extract billing-related information from the request state."""
+        # Note: 'api_key_client_id' and other attributes are set by the 'get_current_api_key' dependency
+        client_id = getattr(request.state, "api_key_client_id", None)
+        key_id = getattr(request.state, "api_key_id", None)
+        cost = getattr(
+            request.state, "api_key_cost", app_settings.CREDIT_COST_PER_REQUEST
+        )
+
+        # Both client_id and key_id are required
+        if not client_id or not key_id:
+            return None
+
+        return {"client_id": client_id, "key_id": key_id, "cost": cost}
+
+    def _attach_billing_task(
+        self, response: Response, billing_info: dict[str, Any]
+    ) -> None:
+        """Attach the billing background task to the response."""
+        # Create the billing background task
+        billing_task = BackgroundTask(
+            adeduct_credits_background,
+            client_id=billing_info["client_id"],
+            key_id=billing_info["key_id"],
+            cost=billing_info["cost"],
+        )
+
+        # CRITICAL: Chain with existing background tasks
+        # If route handlers already attached tasks (e.g., cache updates),
+        # we must run both sequentially to avoid losing operations
+        if response.background:
+            original_task = response.background
+
+            async def run_chained_tasks() -> None:
+                """Execute original task first, then billing task."""
+                await original_task()
+                await billing_task()
+
+            response.background = BackgroundTask(run_chained_tasks)
+        else:
+            # No existing task - simply attach billing task
+            response.background = billing_task
 
 
 # ===== Define the stack of middleware =====
@@ -225,7 +226,7 @@ MIDDLEWARE_STACK: list[type[BaseHTTPMiddleware]] = [
     RequestIDMiddleware,  # 1. Touches request first
     LoggingMiddleware,  # 2. Touches request second
     ErrorHandlingMiddleware,  # 3. Touches request third
-    CreditDeductionMiddleware,  # 4. Touches request fourth (closest to route, deducts on response)
+    BillingMiddleware,  # 4. Handles Usage (Runs after Cache/Router)
 ]
 # Reverse the middleware stack to maintain the correct order! (LIFO: Last In, First Out for requests)
 MIDDLEWARE_STACK.reverse()

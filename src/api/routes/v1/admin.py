@@ -65,13 +65,13 @@ async def list_users(
 
 
 @router.post("/admin/users", status_code=status.HTTP_200_OK)
-async def update_tier(
+async def update_client_data(
     input_data: UpdateClientSchema,
     admin: ClientSchema = Depends(get_current_admin_user),  # noqa: ARG001
     db: AsyncSession = Depends(aget_db),
     rate_limiter=Depends(get_rate_limiter),  # noqa: ANN001, ARG001
 ) -> ClientResponseSchema:
-    """Update user tier and add credits."""
+    """Update client data."""
     # Check if name exists
     client_repo = ClientRepository(db=db)
 
