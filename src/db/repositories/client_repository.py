@@ -29,6 +29,7 @@ class ClientRepository:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
 
+    # ----- Read operations -----
     async def aget_client_by_id(self, id: int) -> DBClient | None:
         """Get a client by its ID with eager loading."""
         try:
@@ -96,42 +97,6 @@ class ClientRepository:
         except Exception as e:
             logger.error(f"Error fetching client by email '{email}': {e}")
             return None
-
-    async def aget_client_with_keys(self, external_id: str) -> DBClient | None:
-        """Get a client along with their associated API keys by external ID with eager loading.
-
-        Note
-        ----
-        This method uses eager loading to fetch related API keys in a single query.
-        (i.e. avoids N+1 query problem)
-        """
-        try:
-            stmt = (
-                select(DBClient)
-                .where(DBClient.external_id == external_id)
-                .options(selectinload(DBClient.api_keys))
-            )
-            return await self.db.scalar(stmt)
-
-        except Exception as e:
-            logger.error(
-                f"Error fetching client with keys by external_id '{external_id}': {e}"
-            )
-            return None
-
-    async def aget_clients_by_status(self, status: ClientStatusEnum) -> list[DBClient]:
-        """Get clients by their status with eager loading."""
-        try:
-            stmt = (
-                select(DBClient)
-                .where(DBClient.status == status.value)
-                .options(selectinload(DBClient.roles))
-            )
-            result = await self.db.scalars(stmt)
-            return list(result.all())
-        except Exception as e:
-            logger.error(f"Error fetching clients by status {status}: {e}")
-            return []
 
     async def aget_clients_cursor(
         self, limit: int = 20, last_seen_id: int | None = None
@@ -213,43 +178,7 @@ class ClientRepository:
         result = await self.db.scalars(stmt)
         return list(result.all())
 
-    async def aget_clients_by_updated_time(
-        self, updated_after: str, updated_before: str
-    ) -> list[DBClient]:
-        """Get clients updated within a specific time range. Uses database-level comparison.
-
-        Parameters
-        ----------
-        updated_after : str
-            The start timestamp (inclusive). e.g. "2023-01-01T00:00:00"
-        updated_before : str
-            The end timestamp (inclusive). e.g. "2023-01-31T23:59:59"
-
-        Returns
-        -------
-        list[DBClient]
-            List of clients updated within the specified time range.
-        """
-        # Internal check: ensures the strings are at least valid dates
-        # before hitting the DB
-        try:
-            start: datetime = parse(updated_after)
-            end: datetime = parse(updated_before)
-        except (ValueError, TypeError) as e:
-            logger.error(f"Invalid date format passed to query: {e}")
-            raise ValueError("Timestamps must be valid ISO 8601 strings.") from e
-
-        stmt = (
-            select(DBClient)
-            .where(
-                DBClient.updated_at >= start,
-                DBClient.updated_at <= end,
-            )
-            .options(selectinload(DBClient.roles))
-        )
-        result = await self.db.scalars(stmt)
-        return list(result.all())
-
+    # ----- Create operations -----
     async def acreate_client(self, client: ClientSchema) -> int:
         """Create client in the database."""
         try:
@@ -282,6 +211,7 @@ class ClientRepository:
             await self.db.rollback()
             raise e
 
+    # ----- Update operations -----
     async def aupdate_client(
         self, client_id: int, update_data: dict[str, Any]
     ) -> DBClient | None:
@@ -508,6 +438,7 @@ class ClientRepository:
             await self.db.rollback()
             raise e
 
+    # ----- Conversion operations -----
     def convert_DBClient_to_schema(  # noqa: N802
         self, db_client: DBClient
     ) -> BaseClientSchema | None:

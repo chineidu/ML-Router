@@ -28,6 +28,7 @@ class APIKeyRepository:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
 
+    # ----- Read operations -----
     async def aget_api_key_by_id(self, id: int) -> DBAPIKey | None:
         """Get a api_key by its ID with eager loading of client and roles."""
         try:
@@ -55,28 +56,15 @@ class APIKeyRepository:
             logger.error(f"Error fetching api_key by key prefix '{key_prefix}': {e}")
             return None
 
-    async def aget_api_key_by_client_ids(self, client_ids: list[int]) -> list[DBAPIKey]:
-        """Get api_key by their client IDs with eager loading of client and roles."""
-        try:
-            stmt = (
-                select(DBAPIKey)
-                .where(DBAPIKey.client_id.in_(client_ids))
-                # Eager loading
-                .options(selectinload(DBAPIKey.client).selectinload(DBClient.roles))
-            )
-            result = await self.db.scalars(stmt)
-            return list(result.all())
-        except Exception as e:
-            logger.error(f"Error fetching api_key by ids {client_ids}: {e}")
-            return []
-
     async def aget_api_key_by_creation_time(
-        self, created_after: str, created_before: str
+        self, client_id: int, created_after: str, created_before: str
     ) -> list[DBAPIKey]:
         """Get api_key created within a specific time range. Uses database-level comparison.
 
         Parameters
         ----------
+        client_id : int
+            The ID of the client whose API keys are being queried.
         created_after : str
             The start timestamp (inclusive). e.g. "2023-01-01T00:00:00"
         created_before : str
@@ -97,6 +85,7 @@ class APIKeyRepository:
             raise ValueError("Timestamps must be valid ISO 8601 strings.") from e
 
         stmt = select(DBAPIKey).where(
+            DBAPIKey.client_id == client_id,
             DBAPIKey.created_at >= start,
             DBAPIKey.created_at <= end,
         )
@@ -104,12 +93,14 @@ class APIKeyRepository:
         return list(result.all())
 
     async def aget_api_key_by_last_used_time(
-        self, last_used_after: str, last_used_before: str
+        self, client_id: int, last_used_after: str, last_used_before: str
     ) -> list[DBAPIKey]:
         """Get api_key last used within a certain time period. Uses database-level comparison.
 
         Parameters
         ----------
+        client_id : int
+            The ID of the client whose API keys are being queried.
         last_used_after : str
             The start timestamp (inclusive). e.g. "2023-01-01T00:00:00"
         last_used_before : str
@@ -130,6 +121,7 @@ class APIKeyRepository:
             raise ValueError("Timestamps must be valid ISO 8601 strings.") from e
 
         stmt = select(DBAPIKey).where(
+            DBAPIKey.client_id == client_id,
             DBAPIKey.last_used_at >= start,
             DBAPIKey.last_used_at <= end,
         )
@@ -150,6 +142,7 @@ class APIKeyRepository:
             logger.error(f"Error fetching api_keys for owner_id '{owner_id}': {e}")
             return []
 
+    # ----- Create operations -----
     async def acreate_api_key(self, api_key_obj: APIKeySchema) -> int:
         """Create api_key in the database."""
         try:
@@ -180,6 +173,7 @@ class APIKeyRepository:
             await self.db.rollback()
             raise e
 
+    # ----- Update operations -----
     async def aupdate_api_key(
         self, key_id: int, client_id: int, update_data: dict[str, Any]
     ) -> DBAPIKey | None:
@@ -236,6 +230,7 @@ class APIKeyRepository:
             await self.db.rollback()
             raise
 
+    # ----- Delete operations -----
     async def adelete_owned_key(self, key_id: int, owner_id: int) -> bool:
         """
         Delete a key only if it belongs to the specific client.
@@ -258,6 +253,7 @@ class APIKeyRepository:
             await self.db.rollback()
             return False
 
+    # ----- Conversion operations -----
     def convert_DBAPIKey_to_schema(self, db_api_key: DBAPIKey) -> APIKeySchema | None:  # noqa: N802
         """Convert a DBAPIKey ORM object directly to a Pydantic response schema."""
         try:
