@@ -1,10 +1,11 @@
-import asyncio
 import hashlib
 import re
 from typing import TYPE_CHECKING, Any
 
 import httpx
 import msgspec
+from opentelemetry import trace
+from opentelemetry.trace import Status, StatusCode
 from tenacity import (
     AsyncRetrying,
     retry_if_exception_type,
@@ -18,10 +19,11 @@ from src.schemas.types import CircuitBreakerStateEnum, TierEnum
 from src.utilities.circuit_breaker import CircuitBreaker
 
 if TYPE_CHECKING:
-    from src.schemas.backend_registry import ServiceInstance
-    from src.services.service_discovery import BackendRegistry
+    pass
 
 logger = create_logger(name=__name__)
+tracer = trace.get_tracer(__name__)
+
 # JSON encoder
 MSGSPEC_ENCODER = msgspec.json.Encoder()
 
@@ -92,7 +94,7 @@ async def aretriable_request(
     min_wait: float = 1,
     max_wait: float = 5,
 ) -> httpx.Response | None:
-    """Make an HTTP POST request with retries and optional circuit breaker.
+    """Make an HTTP POST request with retries, optional circuit breaker and distributed tracing.
 
     Parameters
     ----------
@@ -118,70 +120,170 @@ async def aretriable_request(
     httpx.Response | None
         The HTTP response if the request was successful, otherwise None.
     """
-    async for attempt in AsyncRetrying(
-        stop=stop_after_attempt(max_attempts),
-        wait=wait_exponential(multiplier=multiplier, min=min_wait, max=max_wait),
-        retry=retry_if_exception_type(
-            (httpx.ConnectError, httpx.TimeoutException, httpx.ReadTimeout)
-        ),
-        reraise=True,
-    ):
-        with attempt:
-            if circuit_breaker and not circuit_breaker.can_execute():
-                raise CircuitOpenError(
-                    details=f"Circuit breaker is {CircuitBreakerStateEnum.OPEN.name}. Request blocked."
-                )
-            response = await client.post(url, json=payload)
+    ERRORS = (httpx.ConnectError, httpx.TimeoutException, httpx.ReadTimeout)
 
-            # 5xx errors are retriable while 4xx are not
-            if circuit_breaker:
-                # Successful response
-                if 200 <= response.status_code < 300:
-                    circuit_breaker.record_success()
-                # Server error
-                elif 500 <= response.status_code < 600:
-                    circuit_breaker.record_failure()
-                    # Raise for retry
-                    raise httpx.HTTPStatusError(
-                        f"Server error: {response.status_code}",
-                        request=response.request,
-                        response=response,
-                    )
-                else:  # Client error (4xx)
-                    circuit_breaker.record_failure()
-            return response
-    return None
-
-
-async def update_metrics_background(
-    backend_registry: "BackendRegistry",
-    instance: "ServiceInstance",
-    service_id: str,
-    latency_ms: float,
-) -> None:
-    """Background task to update backend instance metrics."""
-    try:
-        # Update latency using Exponential Weighted Moving Average (EWMA)
-        old_latency: float = float(instance.runtime_metrics.latency_ms or 120)
-        new_latency: float = calculate_latency_ewma(
-            old_latency, current_latency=latency_ms
-        )
-        instance.runtime_metrics.latency_ms = new_latency
-
-        # Dynamic weight calculation
-        instance.runtime_metrics.weight = (
-            backend_registry.service_registry.compute_dynamic_weight(instance)
+    if circuit_breaker and not circuit_breaker.can_execute():
+        # Don't attempt if circuit is open
+        raise CircuitOpenError(
+            details=f"Circuit breaker is {CircuitBreakerStateEnum.OPEN.name}. Request blocked."
         )
 
-        # Debounced save to registry
-        asyncio.create_task(
-            backend_registry.service_registry.asave_registry_debounced(delay=5)
-        )
+    # Create a parent span for the retriable request
+    with tracer.start_as_current_span("http.retriable_request") as parent_span:
+        parent_span.set_attribute("http.url", url)
+        parent_span.set_attribute("http.max_attempts", max_attempts)
+        parent_span.set_attribute("http.method", "POST")
 
-    except Exception as e:
-        logger.error(
-            f"Error updating service '{service_id}' metrics in background: {e}"
-        )
+        last_exception: Exception | None = None
+        last_response: httpx.Response | None = None
+
+        try:
+            async for attempt in AsyncRetrying(
+                stop=stop_after_attempt(max_attempts),
+                wait=wait_exponential(
+                    multiplier=multiplier, min=min_wait, max=max_wait
+                ),
+                retry=retry_if_exception_type(
+                    ERRORS + (httpx.HTTPStatusError,),  # 5xx errors (StatusError)
+                ),
+                reraise=True,
+            ):
+                with attempt:
+                    with tracer.start_as_current_span(
+                        f"http.attempt_{attempt.retry_state.attempt_number}"
+                    ) as attempt_span:
+                        attempt_span.set_attribute(
+                            "http.attempt_number", attempt.retry_state.attempt_number
+                        )
+
+                        try:
+                            # 5xx errors are retriable while 4xx are not
+                            response = await client.post(url, json=payload)
+                            attempt_span.set_attribute(
+                                "http.status_code", response.status_code
+                            )
+                            last_response = response
+
+                            # Successful response
+                            if 200 <= response.status_code < 300:
+                                if circuit_breaker:
+                                    circuit_breaker.record_success()
+                                attempt_span.set_status(Status(StatusCode.OK))
+                                parent_span.set_status(Status(StatusCode.OK))
+                                parent_span.add_event(
+                                    "request_succeeded",
+                                    {
+                                        "attempt": attempt.retry_state.attempt_number,
+                                        "status_code": response.status_code,
+                                    },
+                                )
+                                return response
+
+                            # Server error
+                            if 500 <= response.status_code < 600:
+                                if circuit_breaker:
+                                    circuit_breaker.record_failure()
+                                attempt_span.set_status(
+                                    Status(StatusCode.ERROR, "Server error")
+                                )
+                                parent_span.set_status(
+                                    Status(StatusCode.ERROR, "Server error")
+                                )
+                                parent_span.add_event(
+                                    "request_failed",
+                                    {
+                                        "attempt": attempt.retry_state.attempt_number,
+                                        "status_code": response.status_code,
+                                    },
+                                )
+                                # Raise for retry
+                                raise httpx.HTTPStatusError(
+                                    f"Server error: {response.status_code}",
+                                    request=response.request,
+                                    response=response,
+                                )
+
+                            # Client error (4xx). Do not retry
+                            if circuit_breaker:
+                                circuit_breaker.record_failure()
+                            attempt_span.set_status(
+                                Status(StatusCode.ERROR, "Client error")
+                            )
+                            parent_span.add_event(
+                                "request_failed",
+                                {
+                                    "attempt": attempt.retry_state.attempt_number,
+                                    "status_code": response.status_code,
+                                },
+                            )
+
+                            # No retry for 4xx errors
+                            return response
+
+                        except ERRORS as e:
+                            if circuit_breaker:
+                                circuit_breaker.record_failure()
+                            logger.error(
+                                f"All retry attempts failed for request to {url}: {e}"
+                            )
+                            parent_span.record_exception(e)
+                            parent_span.set_status(Status(StatusCode.ERROR, str(e)))
+                            attempt_span.add_event(
+                                "network_error",
+                                {
+                                    "error_type": type(e).__name__,
+                                    "attempt": attempt.retry_state.attempt_number,
+                                },
+                            )
+
+                            last_exception = e
+                            if attempt.retry_state.attempt_number < max_attempts:
+                                wait_time = min(
+                                    min_wait
+                                    * (
+                                        multiplier
+                                        ** (attempt.retry_state.attempt_number - 1)
+                                    ),
+                                    max_wait,
+                                )
+                                logger.warning(
+                                    f"Request failed (attempt f"
+                                    "{attempt.retry_state.attempt_number}/{max_attempts}): "
+                                    f"{type(e).__name__}. Retrying in {wait_time:.2f}s..."
+                                )
+                                attempt_span.add_event(
+                                    "retrying",
+                                    {
+                                        "wait_seconds": wait_time,
+                                        "next_attempt": attempt.retry_state.attempt_number
+                                        + 1,
+                                    },
+                                )
+
+                            # Re-raise to trigger retry
+                            raise
+
+        except Exception:  # noqa: S110
+            # All attempts exhausted
+            pass
+
+        # After exhausting all attempts
+        parent_span.set_status(Status(StatusCode.ERROR, "All retry attempts failed"))
+        parent_span.add_event("max_attempts_reached", {"total_attempts": max_attempts})
+
+        if last_exception:
+            parent_span.record_exception(last_exception)
+            logger.error(
+                f"Final failure after {max_attempts} attempts for request to {url}: {last_exception}"
+            )
+
+        else:
+            logger.error(
+                f"Final failure after {max_attempts} attempts for request to {url}. "
+                f"Last response: {last_response}"
+            )
+
+        return None
 
 
 def get_ratelimit_value(tier: TierEnum) -> str:

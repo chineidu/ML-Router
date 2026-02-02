@@ -54,6 +54,24 @@ services:
     # e.g. redis://:redis@redis:6379/0
     # Note: Use `redis` instead of `localhost` when connecting from within another container
 
+  jaeger:
+    image: jaegertracing/jaeger:2.14.1
+    container_name: jaeger
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    ports:
+      # Jaeger UI
+      - "16686:16686"
+      # OTLP gRPC receiver (for OpenTelemetry)
+      - "4317:4317"
+      # OTLP HTTP receiver
+      - "4318:4318"
+      # Jaeger Thrift receivers (legacy)
+      - "14268:14268"
+      - "14250:14250"
+      # Zipkin receiver
+      - "9411:9411"
+
   api_gateway:
     build:
       context: .
@@ -92,6 +110,7 @@ services:
       # RABBITMQ_HOST: local-rabbitmq
       POSTGRES_HOST: database
       REDIS_HOST: redis
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4317
     # AWS_S3_HOST: minio
     depends_on:
       database: # This service is the MOST important dependency

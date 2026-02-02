@@ -6,6 +6,7 @@ from typing import Any
 from uuid import uuid4
 
 from fastapi import HTTPException, Request, Response, status
+from opentelemetry import trace
 from starlette.background import BackgroundTask
 from starlette.middleware.base import BaseHTTPMiddleware
 
@@ -214,16 +215,62 @@ class BillingMiddleware(BaseHTTPMiddleware):
             response.background = billing_task
 
 
+class TracingMiddleware(BaseHTTPMiddleware):
+    """Middleware to enrich OpenTelemetry spans with custom attributes and business context."""
+
+    async def dispatch(
+        self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
+        """Add custom attributes to OpenTelemetry spans."""
+        span = trace.get_current_span()
+
+        # Add request metadata to span
+        if span.is_recording():
+            # Add attributes
+            span.set_attribute(
+                "http.request_id", request.headers.get("x-request-id", "")
+            )
+            span.set_attribute("http.user_agent", request.headers.get("user-agent", ""))
+
+            # Add custom business context
+            if "model_type" in request.path_params:
+                span.set_attribute("ml.model_type", request.path_params["model_type"])
+
+        # Execute request
+        response = await call_next(request)
+
+        # Add response and authentication metadata
+        if span.is_recording():
+            # Add response status
+            span.set_attribute("http.status_code", response.status_code)
+
+            # Add authentication context
+            if hasattr(request.state, "api_key_client_id"):
+                span.set_attribute("auth.client_id", request.state.api_key_client_id)
+            if hasattr(request.state, "api_key_id"):
+                span.set_attribute("auth.key_id", request.state.api_key_id)
+
+            # Mark cache hits
+            if response.headers.get("x-cache") == "HIT":
+                span.set_attribute("cache.hit", True)
+                span.add_event("cache_hit")
+            else:
+                span.set_attribute("cache.hit", False)
+
+        return response
+
+
 # ===== Define the stack of middleware =====
 # REQUEST FLOW:
-# RequestIDMiddleware (Outermost) -> LoggingMiddleware
-# -> ErrorHandlingMiddleware -> CreditDeductionMiddleware -> [Endpoint]
+# RequestIDMiddleware (Outermost) -> TracingMiddleware
+# -> LoggingMiddleware -> ErrorHandlingMiddleware -> BillingMiddleware -> [Endpoint]
 #
 # RESPONSE FLOW:
-# [Endpoint] -> CreditDeductionMiddleware -> ErrorHandlingMiddleware
-# -> LoggingMiddleware -> RequestIDMiddleware (Outermost)
+# [Endpoint] -> BillingMiddleware -> ErrorHandlingMiddleware
+# -> LoggingMiddleware -> TracingMiddleware -> RequestIDMiddleware (Outermost)
 MIDDLEWARE_STACK: list[type[BaseHTTPMiddleware]] = [
     RequestIDMiddleware,  # 1. Touches request first
+    TracingMiddleware,  # 1a. Adds tracing info right after Request ID
     LoggingMiddleware,  # 2. Touches request second
     ErrorHandlingMiddleware,  # 3. Touches request third
     BillingMiddleware,  # 4. Handles Usage (Runs after Cache/Router)

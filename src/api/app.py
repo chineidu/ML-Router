@@ -18,6 +18,7 @@ from src.api.routes import admin, apikeys, auth, health, predict, services
 
 # from src.api.routes import proxy
 from src.config import app_config, app_settings
+from src.observability.telemetry import setup_telemetry
 
 warnings.filterwarnings("ignore")
 
@@ -94,6 +95,10 @@ def create_application() -> FastAPI:
     )
     instrumentator.add(model_label)
     instrumentator.instrument(app).expose(app)
+
+    #  Setup OpenTelemetry
+    setup_telemetry(app)
+    logger.info("OpenTelemetry initialized successfully")
 
     return app
 

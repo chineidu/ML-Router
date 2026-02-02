@@ -3,8 +3,9 @@ import time
 from typing import TYPE_CHECKING, Annotated
 
 from aiocache import Cache
-from fastapi import APIRouter, BackgroundTasks, Depends, Path, Request, Response, status
-from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import APIRouter, Depends, Path, Request, Response, status
+from opentelemetry import trace
+from opentelemetry.trace import Status, StatusCode
 
 from src import create_logger
 from src.api.core.auth import require_scope
@@ -18,12 +19,12 @@ from src.api.core.dependencies import (
 from src.api.core.exceptions import CircuitOpenError, HTTPError, ServiceUnavailableError
 from src.api.core.responses import MsgSpecJSONResponse
 from src.config import app_config
-from src.db.models import aget_db
 from src.schemas.db.models import APIKeySchema
 from src.schemas.input_schema import InferenceRequest
 from src.schemas.response import InferenceResponseSchema
 from src.schemas.types import WRITE_SCOPES, ModelTypeEnum
-from src.utilities.utils import aretriable_request, update_metrics_background
+from src.services.metrics import update_metrics_background
+from src.utilities.utils import aretriable_request
 
 if TYPE_CHECKING:
     import httpx
@@ -33,6 +34,7 @@ if TYPE_CHECKING:
 
 logger = create_logger(name=__name__)
 router = APIRouter(tags=["predict"], default_response_class=MsgSpecJSONResponse)
+tracer = trace.get_tracer(__name__)
 
 
 @router.post("/predict/{model_type}", status_code=status.HTTP_200_OK)
@@ -44,13 +46,11 @@ async def make_prediction(
         ModelTypeEnum, Path(description="Type of model to use for prediction.")
     ],
     input_data: InferenceRequest,  # noqa: ARG001
-    background_tasks: BackgroundTasks,
     aclient: "httpx.AsyncClient" = Depends(get_client),
     backend_registry: "BackendRegistry" = Depends(get_backend_registry),
     request_id: str = Depends(get_request_id),
     cache: Cache = Depends(get_cache),  # Required by caching decorator  # noqa: ARG001
     api_key: APIKeySchema = Depends(require_scope(*WRITE_SCOPES)),  # noqa: ANN001, ARG001
-    db: AsyncSession = Depends(aget_db),
 ) -> InferenceResponseSchema:
     """
     Perform model inference and return a prediction with idempotency and caching.
@@ -78,36 +78,56 @@ async def make_prediction(
 
     start_time: float = time.perf_counter()
 
-    # ------ Resolve routing strategy and bulkhead ------
-    strategy = app_config.load_balancer_config.strategy
-    logger.debug(
-        f"Received prediction request | model_type='{model_type}' | strategy={strategy}"
-    )
+    # Get current span (created by FastAPIInstrumentor)
+    span = trace.get_current_span()
 
-    semaphore: asyncio.Semaphore | None = backend_registry.prediction_semaphore.get(
-        model_type
-    )
-    if not semaphore:
-        raise HTTPError(
-            details=f"Prediction semaphore not found for model type '{model_type.value}'."
+    with tracer.start_as_current_span("backend.select") as select_span:
+        # ------ Resolve routing strategy and bulkhead ------
+        strategy = app_config.load_balancer_config.strategy
+        select_span.set_attribute("lb.strategy", strategy)
+        select_span.set_attribute("ml.model_type", model_type.value)
+
+        logger.debug(
+            f"Received prediction request | model_type='{model_type}' | strategy={strategy}"
         )
 
-    # ------ Select backend and validate circuit breaker ------
-    # Cheap and non-blocking
-    backend_url, instance = await backend_registry.aselect_backend_endpoint(
-        model_type, strategy=strategy
-    )
-    if not backend_url or not instance:
-        raise ServiceUnavailableError(
-            service_name=f"'{model_type}'.",
+        semaphore: asyncio.Semaphore | None = backend_registry.prediction_semaphore.get(
+            model_type
         )
+        if not semaphore:
+            raise HTTPError(
+                details=f"Prediction semaphore not found for model type '{model_type.value}'."
+            )
+
+        # ------ Select backend and validate circuit breaker ------
+        # Cheap and non-blocking
+        backend_url, instance = await backend_registry.aselect_backend_endpoint(
+            model_type, strategy=strategy
+        )
+        if not backend_url or not instance:
+            raise ServiceUnavailableError(
+                service_name=f"'{model_type}'.",
+            )
+
+        select_span.set_attribute("backend.url", backend_url)
+        select_span.set_attribute("backend.service_id", instance.service_id)
+        select_span.add_event("backend_selected")
 
     circuit_breaker: "CircuitBreaker" = instance.circuit_breaker
 
-    if not circuit_breaker.can_execute():
-        raise CircuitOpenError(
-            details="Circuit breaker is open, requests are temporarily blocked."
-        )
+    with tracer.start_as_current_span("circuit_breaker.check") as cb_span:
+        can_execute = circuit_breaker.can_execute()
+        cb_span.set_attribute("circuit_breaker.state", circuit_breaker.state.name)
+        cb_span.set_attribute("circuit_breaker.can_execute", can_execute)
+
+        if not can_execute:
+            cb_span.set_status(Status(StatusCode.ERROR, "Circuit open"))
+            cb_span.add_event("circuit_breaker_open")
+            raise CircuitOpenError(
+                details="Circuit breaker is open, requests are temporarily blocked."
+            )
+
+        cb_span.add_event("circuit_breaker_closed")
 
     # Continue if circuit is CLOSED/HALF_OPEN
 
@@ -118,82 +138,102 @@ async def make_prediction(
     QUEUE_TIMEOUT: float = app_config.bulkhead_config.queue_timeout_seconds
     semaphore_acquired = False
 
-    try:
-        await asyncio.wait_for(semaphore.acquire(), timeout=QUEUE_TIMEOUT)
-        semaphore_acquired = True
-    except asyncio.TimeoutError:
-        # If timeout occurs, it means the queue is full
-        logger.warning(
-            f"Queue timeout for {model_type}. Too many requests waiting. Rejecting request {request_id}"
-        )
-        raise ServiceUnavailableError(service_name=model_type.value) from None
+    with tracer.start_as_current_span("bulkhead.acquire") as bulkhead_span:
+        bulkhead_span.set_attribute("bulkhead.timeout_seconds", QUEUE_TIMEOUT)
+
+        try:
+            await asyncio.wait_for(semaphore.acquire(), timeout=QUEUE_TIMEOUT)
+            semaphore_acquired = True
+            bulkhead_span.add_event("semaphore_acquired")
+
+        except asyncio.TimeoutError:
+            # If timeout occurs, it means the queue is full
+            bulkhead_span.set_status(Status(StatusCode.ERROR, "Queue timeout"))
+            bulkhead_span.add_event("queue_timeout")
+            logger.warning(
+                f"Queue timeout for {model_type}. Too many requests waiting. Rejecting request {request_id}"
+            )
+            raise ServiceUnavailableError(service_name=model_type.value) from None
 
     conn_incremented = False
 
-    try:
-        # ------ Bounded concurrency ------
-        await backend_registry.aupdate_active_connection(
-            service_id=instance.service_id, delta=1, persist=False
-        )
-        conn_incremented = True
-        # Prepare payload for backend
-        payload = {
-            "input_data": input_data.input_data,
-            "model_version": input_data.model_version,
-        }
-
-        # Forward request to backend
-        backend_response = await aretriable_request(
-            client=aclient,
-            url=backend_url,
-            payload=payload,
-            # Retry parameters
-            circuit_breaker=circuit_breaker,
-            max_attempts=3,
-            multiplier=0.5,
-            min_wait=1,
-            max_wait=5,
-        )
-        if (
-            backend_response is None
-            or backend_response.status_code != status.HTTP_200_OK
-        ):
-            _resp = (
-                backend_response.text if backend_response else "No response received"
-            )
-            raise HTTPError(
-                details=f"Backend error: {_resp}",
-            )
-        backend_data = backend_response.json()
-
-    finally:
-        # Decrement counter (even if error occurs)
-        if conn_incremented:
+    with tracer.start_as_current_span("backend.request") as backend_span:
+        try:
+            # ------ Bounded concurrency ------
             await backend_registry.aupdate_active_connection(
-                service_id=instance.service_id, delta=-1, persist=False
+                service_id=instance.service_id, delta=1, persist=False
+            )
+            backend_span.add_event("active_connection_incremented")
+            conn_incremented = True
+            # Prepare payload for backend
+            payload = {
+                "input_data": input_data.input_data,
+                "model_version": input_data.model_version,
+            }
+
+            # Forward request to backend
+            backend_response = await aretriable_request(
+                client=aclient,
+                url=backend_url,
+                payload=payload,
+                # Retry parameters
+                circuit_breaker=circuit_breaker,
+                max_attempts=3,
+                multiplier=0.5,
+                min_wait=1,
+                max_wait=5,
+            )
+            backend_span.add_event("backend_response_received")
+
+            if (
+                backend_response is None
+                or backend_response.status_code != status.HTTP_200_OK
+            ):
+                _resp = (
+                    backend_response.text
+                    if backend_response
+                    else "No response received"
+                )
+                backend_span.set_status(
+                    Status(StatusCode.ERROR, "Backend request failed")
+                )
+                backend_span.add_event("backend_error", {"response": _resp})
+                raise HTTPError(
+                    details=f"Backend error: {_resp}",
+                )
+            backend_data = backend_response.json()
+            backend_span.add_event("backend_request_success")
+
+        finally:
+            # Decrement counter (even if error occurs)
+            if conn_incremented:
+                await backend_registry.aupdate_active_connection(
+                    service_id=instance.service_id, delta=-1, persist=False
+                )
+
+            # Release semaphore. i.e. free up a slot
+            if semaphore_acquired:
+                semaphore.release()
+
+            latency_ms: float = (time.perf_counter() - start_time) * 1000
+            span.set_attribute("request.latency_ms", latency_ms)
+
+            # Run updates in background (Non-blocking)
+            asyncio.create_task(
+                update_metrics_background(
+                    backend_registry=backend_registry,
+                    instance=instance,
+                    service_id=instance.service_id,
+                    latency_ms=latency_ms,
+                )
             )
 
-        # Release semaphore. i.e. free up a slot
-        if semaphore_acquired:
-            semaphore.release()
-
-        latency_ms: float = (time.perf_counter() - start_time) * 1000
-        # Run updates in background (Non-blocking)
-        asyncio.create_task(
-            update_metrics_background(
-                backend_registry=backend_registry,
-                instance=instance,
-                service_id=instance.service_id,
-                latency_ms=latency_ms,
-            )
+        # ------ Return response (if all the checks passed) ------
+        return InferenceResponseSchema(
+            request_id=request_id,
+            model_type=model_type,
+            model_version=backend_data.get("modelVersion", ""),
+            prediction=backend_data.get("prediction", {}),
+            processing_time_ms=latency_ms,
+            backend_endpoint=backend_url,
         )
-
-    # ------ Return response (if all the checks passed) ------
-    return InferenceResponseSchema(
-        request_id=request_id,
-        model_type=model_type,
-        model_version=backend_data.get("modelVersion", ""),
-        prediction=backend_data.get("prediction", {}),
-        processing_time_ms=latency_ms,
-        backend_endpoint=backend_url,
-    )

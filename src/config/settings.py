@@ -42,6 +42,12 @@ class BaseConfig(BaseSettings):
     REDIS_DB: int = 0
     REDIS_RATE_LIMIT_DB: int = 1
 
+    # ===== OTEL TRACING =====
+    OTEL_SERVICE_NAME: str = "ml-router"
+    OTEL_SERVICE_VERSION: str = "1.0.0"
+    OTEL_EXPORTER_OTLP_ENDPOINT: str = ""  # e.g., "http://localhost:4317"
+    OTEL_CONSOLE_EXPORTER_ENABLED: bool = False
+
     @field_validator("PORT", "POSTGRES_PORT", "REDIS_PORT", mode="before")
     @classmethod
     def parse_port_fields(cls, v: str | int) -> int:
