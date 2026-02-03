@@ -19,6 +19,7 @@ from src.api.core.exceptions import (
     UnauthorizedError,
     UnexpectedError,
 )
+from src.api.core.metrics import CACHE_REQUEST_COUNT, REQUEST_DURATION_SECONDS
 from src.api.core.responses import MsgSpecJSONResponse
 from src.config import app_settings
 from src.schemas.types import ErrorCodeEnum
@@ -236,8 +237,11 @@ class TracingMiddleware(BaseHTTPMiddleware):
             if "model_type" in request.path_params:
                 span.set_attribute("ml.model_type", request.path_params["model_type"])
 
+        start_time = time.perf_counter()
+
         # Execute request
         response = await call_next(request)
+        duration_seconds = time.perf_counter() - start_time
 
         # Add response and authentication metadata
         if span.is_recording():
@@ -256,6 +260,22 @@ class TracingMiddleware(BaseHTTPMiddleware):
                 span.add_event("cache_hit")
             else:
                 span.set_attribute("cache.hit", False)
+
+        # Record cache status metrics for Prometheus
+        cache_status = (response.headers.get("x-cache") or "UNKNOWN").upper()
+        model_type = request.path_params.get("model_type", "unknown")
+        CACHE_REQUEST_COUNT.labels(
+            cache_status=cache_status,
+            model_type=model_type,
+            method=request.method,
+            status=str(response.status_code),
+        ).inc()
+
+        REQUEST_DURATION_SECONDS.labels(
+            model_type=model_type,
+            method=request.method,
+            status=str(response.status_code),
+        ).observe(duration_seconds)
 
         return response
 

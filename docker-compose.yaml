@@ -6,7 +6,7 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - api-gateway-db-volume:/var/lib/postgresql/data
+      - api_gateway_db_volume:/var/lib/postgresql/data
       # Mount initialization script to create API database or other needed DBs
       # Please ensure the script has proper permissions (e.g., chmod +x)
       # Run for the 1st time ONLY: chmod +x docker/init_databases.sh
@@ -28,7 +28,7 @@ services:
     ports:
       - "6379:6379"
     volumes:
-      - redis-data:/data
+      - redis_data:/data
       - type: bind
         source: ./docker/redis.conf
         target: /usr/local/etc/redis/redis.conf
@@ -55,6 +55,7 @@ services:
     # Note: Use `redis` instead of `localhost` when connecting from within another container
 
   jaeger:
+    # For distributed tracing collection and visualization
     image: jaegertracing/jaeger:2.14.1
     container_name: jaeger
     environment:
@@ -76,8 +77,42 @@ services:
       # Zipkin receiver
       - "9411:9411"
     volumes:
-      - jaeger-data:/badger
+      - jaeger_data:/badger
     restart: unless-stopped
+  prometheus:
+    # For metrics scraping and storage
+    image: prom/prometheus:latest
+    container_name: prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yaml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=30d"
+    volumes:
+      - ./monitoring/prometheus/prometheus.yaml:/etc/prometheus/prometheus.yaml
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+
+  grafana:
+    # For metrics visualization and dashboards
+    image: grafana/grafana:latest
+    container_name: grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin123
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_SERVER_ROOT_URL=http://localhost:3000
+      - GF_INSTALL_PLUGINS=grafana-piechart-panel,grafana-clock-panel
+    volumes:
+      # Provisioning (auto-configure datasources & dashboards)
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
+      # Persistent storage
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+      - jaeger
 
   api_gateway:
     build:
@@ -130,6 +165,7 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # ===== Mock ML Backend Services =====
   sentiment_model_1:
     build:
       context: .
@@ -401,6 +437,8 @@ services:
 # Named volumes ONLY!
 # Persist data outside the lifecycle of the container.
 volumes:
-  api-gateway-db-volume:
-  redis-data:
-  jaeger-data:
+  api_gateway_db_volume:
+  redis_data:
+  jaeger_data:
+  prometheus_data:
+  grafana_data:

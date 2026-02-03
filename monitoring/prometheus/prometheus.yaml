@@ -1,0 +1,23 @@
+# monitoring/prometheus/prometheus.yaml
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: "ml-inference"
+    environment: "staging"
+
+scrape_configs:
+  # Container metrics
+  - job_name: "ml-inference-api"
+    static_configs:
+      # container_name:port
+      - targets: ["api_gateway:8000"]
+        labels:
+          service: "api-gateway"
+    metrics_path: "/metrics"
+    scrape_interval: 10s
+
+  # Scrape Prometheus itself
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]
