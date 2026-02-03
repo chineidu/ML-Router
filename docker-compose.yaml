@@ -58,7 +58,11 @@ services:
     image: jaegertracing/jaeger:2.14.1
     container_name: jaeger
     environment:
-      - COLLECTOR_OTLP_ENABLED=true
+      - COLLECTOR_OTLP_ENABLED=true # enable OTLP receiver so Jaeger accepts OpenTelemetry traces
+      - SPAN_STORAGE_TYPE=badger # use BadgerDB as the span storage backend (embedded KV store)
+      - BADGER_EPHEMERAL=false # false = persist Badger data on disk; true = in-memory/ephemeral
+      - BADGER_DIRECTORY_VALUE=/badger/data # path inside container for Badger value log
+      - BADGER_DIRECTORY_KEY=/badger/key # path inside container for Badger key/LSM files
     ports:
       # Jaeger UI
       - "16686:16686"
@@ -71,6 +75,9 @@ services:
       - "14250:14250"
       # Zipkin receiver
       - "9411:9411"
+    volumes:
+      - jaeger-data:/badger
+    restart: unless-stopped
 
   api_gateway:
     build:
@@ -396,4 +403,4 @@ services:
 volumes:
   api-gateway-db-volume:
   redis-data:
-  minio-data:
+  jaeger-data:

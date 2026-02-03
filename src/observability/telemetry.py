@@ -41,7 +41,7 @@ def setup_telemetry(app: Any) -> None:
     None
     """
 
-    # STEP 1: Create tracer provider with service metadata
+    # Create tracer provider with service metadata
     resource = Resource(
         attributes={
             SERVICE_NAME: app_settings.OTEL_SERVICE_NAME,
@@ -53,7 +53,7 @@ def setup_telemetry(app: Any) -> None:
     provider = TracerProvider(resource=resource)
     trace.set_tracer_provider(provider)
 
-    # STEP 2: Configure span exporters
+    # Configure span exporters
     # Export to OTLP collector (Jaeger, Tempo, etc.)
     if app_settings.OTEL_EXPORTER_OTLP_ENDPOINT:
         otlp_exporter = OTLPSpanExporter(
@@ -71,7 +71,7 @@ def setup_telemetry(app: Any) -> None:
         provider.add_span_processor(BatchSpanProcessor(console_exporter))
         logger.info("Console span exporter enabled")
 
-    # STEP 3: Instrument FastAPI application
+    # Instrument FastAPI application
     # Automatically creates spans for all HTTP requests
     FastAPIInstrumentor.instrument_app(
         app,
@@ -81,7 +81,7 @@ def setup_telemetry(app: Any) -> None:
     )
     logger.info("FastAPI instrumentation enabled")
 
-    # STEP 4: Instrument HTTP client (for backend calls)
+    # Instrument HTTP client (for backend calls)
     # Traces all httpx requests and propagates trace context
     # Ensure HTTPXClientInstrumentor is instantiated correctly
     httpx_instrumentor = HTTPXClientInstrumentor()
@@ -94,7 +94,7 @@ def setup_telemetry(app: Any) -> None:
         logger.warning("HTTPXClientInstrumentor is None and cannot be instrumented.")
     logger.info("HTTPX client instrumentation enabled")
 
-    # STEP 5: Instrument Redis (for caching operations)
+    # Instrument Redis (for caching operations)
     redis_instrumentor = RedisInstrumentor()
     if redis_instrumentor is not None:
         redis_instrumentor.instrument(
@@ -103,7 +103,7 @@ def setup_telemetry(app: Any) -> None:
         logger.info("Redis instrumentation enabled")
     else:
         logger.warning("RedisInstrumentor is None and cannot be instrumented.")
-    # STEP 6: Instrument SQLAlchemy (for database operations)
+    # Instrument SQLAlchemy (for database operations)
     # Note: This instruments the engine, so call after creating engine
     # SQLAlchemyInstrumentor().instrument(
     #     tracer_provider=provider,
